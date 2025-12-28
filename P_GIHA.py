@@ -164,19 +164,19 @@ class P_GIHA:
                     best_pi = pi
                     best_pi_dagger = pj
 
-        # Optional refinement: among ALL other paths, pick the hardest competitor for best_pi
-        best_G2 = np.inf
-        for pj in sorted_ids:
-            if pj == best_pi:
-                continue
-            g_diff = self.g_pi[best_pi] - self.g_pi[pj]
-            sig2 = float(g_diff.T @ self.V_inv @ g_diff)
-            sig2 = max(sig2, 1e-12)
-            gap = mu_hat[best_pi] - mu_hat[pj]
-            G = (gap ** 2) / sig2
-            if G < best_G2:
-                best_G2 = G
-                best_pi_dagger = pj
+        # # Optional refinement: among ALL other paths, pick the hardest competitor for best_pi
+        # best_G2 = np.inf
+        # for pj in sorted_ids:
+        #     if pj == best_pi:
+        #         continue
+        #     g_diff = self.g_pi[best_pi] - self.g_pi[pj]
+        #     sig2 = float(g_diff.T @ self.V_inv @ g_diff)
+        #     sig2 = max(sig2, 1e-12)
+        #     gap = mu_hat[best_pi] - mu_hat[pj]
+        #     G = (gap ** 2) / sig2
+        #     if G < best_G2:
+        #         best_G2 = G
+        #         best_pi_dagger = pj
 
 
 
