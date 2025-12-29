@@ -1,4 +1,5 @@
 import numpy as np
+import time  
 
 class P_GIHA:
     """
@@ -74,6 +75,13 @@ class P_GIHA:
         else:
             raise ValueError("step_pool_mode must be 'paths' or 'all'")
 
+        
+
+        self.total_comparisons = 0
+        self.gap_deficit_history = []   # one value per round
+        self.round_time_history = []    # optional: time per select_and_update call
+        self.best_G_history = []   # store hardest boundary gap-index per round
+        self.min_lcb_history = []  # store min_{top x rest} (gap - W) each round (stopping quantity)
 
 
     def _get_confidence_radius_beta(self):
@@ -115,6 +123,8 @@ class P_GIHA:
         return beta_t
 
     def select_and_update(self, oracle_callback):
+        t_round0 = time.perf_counter()
+
         # ... (rest of the implementation remains the same as previous) ...
         # --- 1. Compute Path Estimates (Linear) ---
         mu_hat = {pid: np.dot(g, self.theta_hat) for pid, g in self.g_pi.items()}
@@ -128,9 +138,15 @@ class P_GIHA:
         top_ids = list(sorted_ids[:self.m])
         rest_ids = list(sorted_ids[self.m:])
 
+        n_pairs = len(top_ids) * len(rest_ids)
+
+
         if len(rest_ids) == 0:
+            self.round_time_history.append(time.perf_counter() - t_round0)
             return True, top_ids
 
+
+        self.total_comparisons += n_pairs
         # --- Stopping Condition (paper): min over (top x rest) of (gap - width) >= -epsilon ---
         min_lcb = np.inf
         for pi in top_ids:
@@ -144,8 +160,14 @@ class P_GIHA:
                 if lcb < min_lcb:
                     min_lcb = lcb
 
+        self.min_lcb_history.append(min_lcb)
+
+
         if min_lcb >= -self.epsilon:
+            self.round_time_history.append(time.perf_counter() - t_round0)
             return True, top_ids
+
+        
 
         # --- Choose hardest boundary pair: argmin G_t over (top x rest) ---
         best_G = np.inf
@@ -177,6 +199,16 @@ class P_GIHA:
         #     if G < best_G2:
         #         best_G2 = G
         #         best_pi_dagger = pj
+        self.best_G_history.append(best_G)
+
+        # gap-deficit for the chosen boundary pair (should go to 0 at convergence)
+        g_diff = self.g_pi[best_pi] - self.g_pi[best_pi_dagger]
+        sig2 = float(g_diff.T @ self.V_inv @ g_diff)
+        sig2 = max(sig2, 1e-12)
+        W = beta_t * np.sqrt(sig2)
+        gap = mu_hat[best_pi] - mu_hat[best_pi_dagger]
+        gap_deficit = (W - gap - self.epsilon)  # no clipping
+        self.gap_deficit_history.append(gap_deficit)
 
 
 
@@ -227,4 +259,5 @@ class P_GIHA:
         self.theta_hat = self.theta_hat + gain_vector * pred_error
 
         self.t += 1
+        self.round_time_history.append(time.perf_counter() - t_round0)
         return False, sorted_ids[:self.m]

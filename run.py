@@ -1,5 +1,8 @@
 import numpy as np
 from P_GIHA import P_GIHA
+import time
+import matplotlib.pyplot as plt
+
 
 # --- 1. Synthetic Environment Generator (Linear) ---
 class ReasoningEnvironment:
@@ -107,6 +110,21 @@ class ReasoningEnvironment:
 
         
         return clean_score + noise
+
+    def oracle_callback_path(self, path_id):
+        """
+        Oracle for a PATH arm (CASE pulls paths, not steps).
+        Returns: g_pi^T theta + Noise, where g_pi is mean feature over steps on the path.
+        """
+        step_indices = self.paths[path_id]
+        g_pi = np.mean(self.feature_matrix[step_indices], axis=0)
+
+        clean_score = float(g_pi @ self.true_theta)
+        noise = self.rng.normal(0, self.noise_std)
+        return clean_score + noise
+
+
+
 
 
 # --- 2. Simulation Runner ---
