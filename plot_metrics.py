@@ -8,6 +8,63 @@ from run import ReasoningEnvironment
 from CASE import CASE
 
 
+class FairOracle:
+    """
+    Deterministic, arm-wise noise oracle.
+    - Each STEP (P-GIHA) has its own RNG stream (seeded by trial_seed + step_id)
+    - Each PATH (CASE) has its own RNG stream (seeded by trial_seed + path_id)
+    This makes noise independent of call order.
+    """
+
+    def __init__(self, env, trial_seed: int):
+        self.env = env
+        self.trial_seed = int(trial_seed)
+        self._rng_step = {}  # step_id -> Generator
+        self._rng_path = {}  # path_id -> Generator
+
+    @staticmethod
+    def _mix64(x: int) -> int:
+        """SplitMix64 finalizer (deterministic 64-bit mix)."""
+        mask = (1 << 64) - 1
+        x &= mask
+        x ^= (x >> 30)
+        x = (x * 0xbf58476d1ce4e5b9) & mask
+        x ^= (x >> 27)
+        x = (x * 0x94d049bb133111eb) & mask
+        x ^= (x >> 31)
+        return x & mask
+
+    def _seed_for(self, kind: int, arm_id: int) -> int:
+        # kind: 0=step, 1=path
+        # combine trial_seed + kind + arm_id into a single deterministic 64-bit seed
+        x = (self.trial_seed * 0x9e3779b97f4a7c15) ^ (kind * 0xbf58476d1ce4e5b9) ^ (int(arm_id) + 1)
+        return self._mix64(x)
+
+    def _get_rng(self, kind: int, arm_id: int):
+        store = self._rng_step if kind == 0 else self._rng_path
+        arm_id = int(arm_id)
+        if arm_id not in store:
+            store[arm_id] = np.random.default_rng(self._seed_for(kind, arm_id))
+        return store[arm_id]
+
+    # ---- Oracles ----
+    def step(self, step_idx: int) -> float:
+        step_idx = int(step_idx)
+        x = self.env.feature_matrix[step_idx]
+        clean = float(x @ self.env.true_theta)
+        rng = self._get_rng(0, step_idx)
+        noise = float(rng.normal(0.0, self.env.noise_std))
+        return clean + noise
+
+    def path(self, path_id: int) -> float:
+        path_id = int(path_id)
+        steps = self.env.paths[path_id]
+        g = np.mean(self.env.feature_matrix[steps], axis=0)
+        clean = float(g @ self.env.true_theta)
+        rng = self._get_rng(1, path_id)
+        noise = float(rng.normal(0.0, self.env.noise_std))
+        return clean + noise
+
 
 def pad_nan(seqs):
     """Pad ragged list of 1D arrays with NaN to common length."""
@@ -20,24 +77,33 @@ def pad_nan(seqs):
 def run_trials(make_algo_fn, n_trials=50, max_rounds=2000, verbose=True, log_every=50):
     total_comparisons = []
     runtimes = []
+    oracle_costs = []     # NEW: step-equivalent oracle calls per trial
     G_traces = []
     lcb_traces = []
-    acc_traces = []   # NEW
+    acc_traces = []
 
     for k in range(n_trials):
         algo = make_algo_fn(k)
-        oracle = algo._oracle
+
+        oracle_base = algo._oracle
+        cost_fn = getattr(algo, "_oracle_cost", lambda _a: 1)
+
+        oracle_cost = 0  # step-equivalent cost in THIS trial
+
+        def oracle_wrapped(a):
+            nonlocal oracle_cost
+            oracle_cost += int(cost_fn(a))
+            return oracle_base(a)
 
         t0 = time.perf_counter()
         done = False
         top = None
 
-        acc_hist = []  # NEW: accuracy per round (aligned with algo.t)
+        acc_hist = []
 
         while (not done) and (algo.t < max_rounds):
-            done, top = algo.select_and_update(oracle)
+            done, top = algo.select_and_update(oracle_wrapped)
 
-            # compute accuracy every iteration (cheap)
             correct = len(set(top).intersection(set(algo._true_top_m)))
             acc = correct / algo.m
             acc_hist.append(acc)
@@ -46,23 +112,30 @@ def run_trials(make_algo_fn, n_trials=50, max_rounds=2000, verbose=True, log_eve
                 print(f"[{algo._name} trial {k+1}/{n_trials}] iter={algo.t} done={done} acc={correct}/{algo.m} ({acc:.2f})")
 
         rt = time.perf_counter() - t0
+
         runtimes.append(rt)
         total_comparisons.append(algo.total_comparisons)
+        oracle_costs.append(oracle_cost)  # NEW
 
         G_traces.append(np.array(algo.best_G_history, dtype=float))
         lcb_traces.append(np.array(algo.min_lcb_history, dtype=float))
-        acc_traces.append(np.array(acc_hist, dtype=float))   
+        acc_traces.append(np.array(acc_hist, dtype=float))
 
         if verbose:
             correct = len(set(top).intersection(set(algo._true_top_m)))
             acc = correct / algo.m
-            print(f"[{algo._name} trial {k+1}/{n_trials}] finished: iter={algo.t}, done={done}, final acc={correct}/{algo.m} ({acc:.2f}), runtime={rt:.2f}s")
+            print(f"[{algo._name} trial {k+1}/{n_trials}] finished: iter={algo.t}, done={done}, final acc={correct}/{algo.m} ({acc:.2f}), "
+                  f"oracle_cost={oracle_cost}, runtime={rt:.2f}s")
 
-    return (np.array(total_comparisons),
-            np.array(runtimes),
-            G_traces,
-            lcb_traces,
-            acc_traces)   
+    return (
+        np.array(total_comparisons),
+        np.array(runtimes),
+        np.array(oracle_costs),  # NEW (3rd item)
+        G_traces,
+        lcb_traces,
+        acc_traces
+    )
+
 
 
 
@@ -155,8 +228,8 @@ def plot_results(total_comparisons, runtimes, G_traces, lcb_traces, label="P-GIH
 
 
 def plot_compare(resA, resB, nameA="P-GIHA", nameB="CASE", epsilon=0.05, save_path="compare.png"):
-    compsA, rtsA, G_A, L_A, Acc_A = resA
-    compsB, rtsB, G_B, L_B, Acc_B = resB
+    compsA, rtsA, orcA, G_A, L_A, Acc_A = resA
+    compsB, rtsB, orcB, G_B, L_B, Acc_B = resB
 
     GA = pad_nan(G_A); GB = pad_nan(G_B)
     LA = pad_nan(L_A); LB = pad_nan(L_B)
@@ -175,11 +248,15 @@ def plot_compare(resA, resB, nameA="P-GIHA", nameB="CASE", epsilon=0.05, save_pa
     muAA, sdAA, cntAA = mean_std_cnt(AA)
     muAB, sdAB, cntAB = mean_std_cnt(AB)
 
-    fig, axes = plt.subplots(1, 5, figsize=(22, 3.6))
+    # ---- figure: 1x8 now (f split into 3) ----
+    fig, axes = plt.subplots(1, 8, figsize=(32, 3.6))
 
     # (a) comparisons
     means = [np.mean(compsA), np.mean(compsB)]
-    stds  = [np.std(compsA, ddof=1), np.std(compsB, ddof=1)]
+    stds  = [
+        np.std(compsA, ddof=1) if len(compsA) > 1 else 0.0,
+        np.std(compsB, ddof=1) if len(compsB) > 1 else 0.0
+    ]
     axes[0].bar([0, 1], means, yerr=stds, capsize=6)
     axes[0].set_xticks([0, 1])
     axes[0].set_xticklabels([nameA, nameB], rotation=45, ha="right")
@@ -230,10 +307,55 @@ def plot_compare(resA, resB, nameA="P-GIHA", nameB="CASE", epsilon=0.05, save_pa
     ax.set_title("(e) Accuracy")
     ax.legend(loc="best")
 
+    # ---- oracle stats ----
+    mean_orcA = float(np.mean(orcA))
+    mean_orcB = float(np.mean(orcB))
+    std_orcA  = float(np.std(orcA, ddof=1)) if len(orcA) > 1 else 0.0
+    std_orcB  = float(np.std(orcB, ddof=1)) if len(orcB) > 1 else 0.0
+
+    # Avoid log-scale issues if any 0 sneaks in
+    orcA_pos = np.clip(np.array(orcA, dtype=float), 1e-12, None)
+    orcB_pos = np.clip(np.array(orcB, dtype=float), 1e-12, None)
+
+    # (f1) oracle calls - linear
+    ax = axes[5]
+    ax.bar([0, 1], [mean_orcA, mean_orcB], yerr=[std_orcA, std_orcB], capsize=6)
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels([nameA, nameB], rotation=45, ha="right")
+    ax.set_ylabel("Avg oracle calls\n(step-equiv.)")
+    ax.set_title("(f1) oracle calls\n(linear)")
+    ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+
+    # (f2) oracle calls - log
+    ax = axes[6]
+    ax.bar([0, 1], [np.mean(orcA_pos), np.mean(orcB_pos)],
+           yerr=[
+               np.std(orcA_pos, ddof=1) if len(orcA_pos) > 1 else 0.0,
+               np.std(orcB_pos, ddof=1) if len(orcB_pos) > 1 else 0.0
+           ],
+           capsize=6)
+    ax.set_yscale("log")
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels([nameA, nameB], rotation=45, ha="right")
+    ax.set_ylabel("Avg oracle calls\n(step-equiv.)")
+    ax.set_title("(f2) oracle calls\n(log)")
+
+    # (f3) relative oracle calls = CASE / P-GIHA (mean ± std over trials)
+    ax = axes[7]
+    ratio = orcB_pos / orcA_pos
+    mean_ratio = float(np.mean(ratio))
+    std_ratio  = float(np.std(ratio, ddof=1)) if len(ratio) > 1 else 0.0
+    ax.bar([0], [mean_ratio], yerr=[std_ratio], capsize=6)
+    ax.set_xticks([0])
+    ax.set_xticklabels([f"{nameB}/{nameA}"], rotation=45, ha="right")
+    ax.set_ylabel("Relative oracle calls")
+    ax.set_title("(f3) oracle calls\n(relative)")
+
     fig.tight_layout()
     fig.savefig(save_path, dpi=300, bbox_inches="tight")
     print(f"Saved plot to: {save_path}")
     plt.show()
+
 
 
 
@@ -276,30 +398,45 @@ if __name__ == "__main__":
 
     N_TRIALS = 10
     MAX_ROUNDS = 5000
+    # Deterministic trial seeds (same seeds used for BOTH algorithms)
+    trial_seeds = list(range(N_TRIALS))
+    assert len(trial_seeds) == N_TRIALS
+
 
     # ---------------------------
     # Factories
     # ---------------------------
     # --- NEW: cache env + truth so CASE and P-GIHA share EXACT same env per trial k ---
-    ENV_CACHE = {}
-    TRUTH_CACHE = {}
+    # ENV_CACHE = {}
+    # TRUTH_CACHE = {}
 
-    def get_env_and_truth(k):
-        if k not in ENV_CACHE:
-            env = ReasoningEnvironment(**ENV_CFG, seed=SEED + k)
+    # def get_env_and_truth(k):
+    #     if k not in ENV_CACHE:
+    #         env = ReasoningEnvironment(**ENV_CFG, seed=SEED + k)
 
-            true_scores = env.get_ground_truth()
-            sorted_truth = sorted(true_scores.items(), key=lambda x: x[1], reverse=True)
-            true_top_m = [pid for pid, _ in sorted_truth[:ALG_PGIHA["m"]]]  # m is same in both configs
+    #         true_scores = env.get_ground_truth()
+    #         sorted_truth = sorted(true_scores.items(), key=lambda x: x[1], reverse=True)
+    #         true_top_m = [pid for pid, _ in sorted_truth[:ALG_PGIHA["m"]]]  # m is same in both configs
 
-            ENV_CACHE[k] = env
-            TRUTH_CACHE[k] = true_top_m
+    #         ENV_CACHE[k] = env
+    #         TRUTH_CACHE[k] = true_top_m
 
-        return ENV_CACHE[k], TRUTH_CACHE[k]
+    #     return ENV_CACHE[k], TRUTH_CACHE[k]
 
 
     def make_algo_pgiha(k):
-        env, true_top_m = get_env_and_truth(k)
+        seed_k = trial_seeds[k]
+
+        # one env per trial
+        env = ReasoningEnvironment(**ENV_CFG, seed=seed_k)
+
+        # truth (same for both algorithms)
+        true_scores = env.get_ground_truth()
+        sorted_truth = sorted(true_scores.items(), key=lambda x: x[1], reverse=True)
+        true_top_m = [pid for pid, _ in sorted_truth[:ALG_PGIHA["m"]]]
+
+        # fair oracle for this trial/env
+        fair = FairOracle(env, seed_k)
 
         algo = P_GIHA(
             paths=env.paths,
@@ -314,25 +451,28 @@ if __name__ == "__main__":
             step_pool_mode=ALG_PGIHA["step_pool_mode"],
         )
 
-        # attach env + truth for logging
         algo._env = env
+        algo._oracle = fair.step              # <<< CHANGED (fair, order-independent)
         algo._true_top_m = true_top_m
         algo._name = "P-GIHA"
-
-        # --- NEW: oracle with its own RNG (so it doesn't depend on CASE run order) ---
-        rng = np.random.default_rng(10_000 + k)
-
-        def oracle_step(step_idx, env=env, rng=rng):
-            feat = env.feature_matrix[step_idx]
-            clean = float(feat @ env.true_theta)
-            return clean + rng.normal(0, env.noise_std)
-
-        algo._oracle = oracle_step
+        algo._oracle_cost = lambda step_idx: 1
         return algo
 
 
+
     def make_algo_case(k):
-        env, true_top_m = get_env_and_truth(k)
+        seed_k = trial_seeds[k]
+
+        # one env per trial (same seed_k as P-GIHA trial k)
+        env = ReasoningEnvironment(**ENV_CFG, seed=seed_k)
+
+        # truth (same for both algorithms)
+        true_scores = env.get_ground_truth()
+        sorted_truth = sorted(true_scores.items(), key=lambda x: x[1], reverse=True)
+        true_top_m = [pid for pid, _ in sorted_truth[:ALG_CASE["m"]]]
+
+        # fair oracle for this trial/env
+        fair = FairOracle(env, seed_k)
 
         algo = CASE(
             paths=env.paths,
@@ -344,26 +484,19 @@ if __name__ == "__main__":
             delta=ALG_CASE["delta"],
             R=ALG_CASE["R"],
             S_0=ALG_CASE["S_0"],
-            challenger_size=ALG_CASE["challenger_size"],
-            challenger_batch=ALG_CASE["challenger_batch"],
-            seed=ALG_CASE["seed"],
+            challenger_size=ALG_CASE.get("challenger_size", 5),
+            challenger_batch=ALG_CASE.get("challenger_batch", 5),
+            seed=seed_k,  # keep CASE internal RNG deterministic
         )
 
         algo._env = env
+        algo._oracle = fair.path              # <<< CHANGED (fair, order-independent)
         algo._true_top_m = true_top_m
         algo._name = "CASE"
-
-        # --- NEW: oracle with its own RNG (independent of P-GIHA run order) ---
-        rng = np.random.default_rng(20_000 + k)
-
-        def oracle_path(path_id, env=env, rng=rng):
-            steps = env.paths[path_id]
-            g = np.mean(env.feature_matrix[steps], axis=0)
-            clean = float(g @ env.true_theta)
-            return clean + rng.normal(0, env.noise_std)
-
-        algo._oracle = oracle_path
+        algo._oracle_cost = lambda path_id, paths=env.paths: len(paths[int(path_id)])
         return algo
+
+
 
 
     # ---------------------------
