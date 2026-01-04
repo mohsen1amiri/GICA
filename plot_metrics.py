@@ -3,7 +3,10 @@ import time
 import matplotlib.pyplot as plt
 
 from P_GIHA import P_GIHA
+from GIFA import LinGIFA   # or: from GIFA import GIFA
+from m_LinGapE import m_LinGapE
 from run import ReasoningEnvironment
+from XTreme import XtremeAlg3OnPaths
 
 from CASE import CASE
 
@@ -356,6 +359,140 @@ def plot_compare(resA, resB, nameA="P-GIHA", nameB="CASE", epsilon=0.05, save_pa
     print(f"Saved plot to: {save_path}")
     plt.show()
 
+def plot_compare_all(res_dict, epsilon=0.05, save_path="compare_all_algorithms.png"):
+    """
+    Paper-style comparison of MANY algorithms on one figure (no simple-regret).
+    res_dict: {name: (comps, rts, orc, G_traces, L_traces, Acc_traces)}
+    """
+    names = list(res_dict.keys())
+    nA = len(names)
+
+    # ---- helpers ----
+    def mean_std(x):
+        x = np.asarray(x, dtype=float)
+        mu = float(np.mean(x))
+        sd = float(np.std(x, ddof=1)) if len(x) > 1 else 0.0
+        return mu, sd
+
+    def mean_std_cnt_from_traces(traces):
+        M = pad_nan(traces)  # trials x time (NaN padded)
+        mu = np.nanmean(M, axis=0)
+        sd = np.nanstd(M, axis=0, ddof=1) if M.shape[0] > 1 else np.zeros_like(mu)
+        cnt = np.sum(~np.isnan(M), axis=0)
+        return mu, sd, cnt
+
+    # ---- unpack per algorithm ----
+    comps_list = []
+    rts_list = []
+    orc_list = []
+    G_stats = {}
+    L_stats = {}
+    A_stats = {}
+
+    for name in names:
+        comps, rts, orc, G_tr, L_tr, Acc_tr = res_dict[name]
+        comps_list.append(np.asarray(comps))
+        rts_list.append(np.asarray(rts))
+        orc_list.append(np.asarray(orc))
+
+        G_stats[name] = mean_std_cnt_from_traces(G_tr)
+        L_stats[name] = mean_std_cnt_from_traces(L_tr)
+        A_stats[name] = mean_std_cnt_from_traces(Acc_tr)
+
+    # ---- figure layout: (a) comparisons, (b) runtime, (c) gap index, (d) stopping, (e) accuracy, (f1) oracle linear, (f2) oracle log ----
+    fig, axes = plt.subplots(1, 7, figsize=(30, 3.8))
+
+    # (a) comparisons bar
+    ax = axes[0]
+    means = [mean_std(c)[0] for c in comps_list]
+    stds  = [mean_std(c)[1] for c in comps_list]
+    ax.bar(np.arange(nA), means, yerr=stds, capsize=6)
+    ax.set_xticks(np.arange(nA))
+    ax.set_xticklabels(names, rotation=45, ha="right")
+    ax.set_ylabel("Avg no. of comparisons")
+    ax.set_title("(a) comparisons")
+    ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+
+    # (b) runtime boxplot
+    ax = axes[1]
+    ax.boxplot(rts_list, labels=names, showfliers=True)
+    ax.set_ylabel("Runtime (seconds)")
+    ax.set_title("(b) runtime")
+
+    # (c) gap index curves (mean ± std)
+    ax = axes[2]
+    for name in names:
+        mu, sd, cnt = G_stats[name]
+        x = np.arange(len(mu))
+        line, = ax.plot(x, mu, label=name)
+        mask = cnt >= 2
+        if np.any(mask):
+            ax.fill_between(x[mask], (mu - sd)[mask], (mu + sd)[mask],
+                            alpha=0.2, color=line.get_color())
+    ax.set_xlabel("Rounds")
+    ax.set_ylabel("Gap index")
+    ax.set_title("(c) gap index")
+    ax.legend(loc="best", fontsize=8)
+
+    # (d) stopping quantity curves (mean ± std)
+    ax = axes[3]
+    for name in names:
+        mu, sd, cnt = L_stats[name]
+        x = np.arange(len(mu))
+        line, = ax.plot(x, mu, label=name)
+        mask = cnt >= 2
+        if np.any(mask):
+            ax.fill_between(x[mask], (mu - sd)[mask], (mu + sd)[mask],
+                            alpha=0.2, color=line.get_color())
+    ax.axhline(-epsilon, linestyle="--", linewidth=1, color="gray", label="-epsilon")
+    ax.set_xlabel("Rounds")
+    ax.set_ylabel("Δhat - W")
+    ax.set_title("(d) stopping qty")
+    ax.legend(loc="best", fontsize=8)
+
+    # (e) accuracy curves (mean ± std)
+    ax = axes[4]
+    for name in names:
+        mu, sd, cnt = A_stats[name]
+        x = np.arange(len(mu))
+        line, = ax.plot(x, mu, label=name)
+        mask = cnt >= 2
+        if np.any(mask):
+            ax.fill_between(x[mask], (mu - sd)[mask], (mu + sd)[mask],
+                            alpha=0.2, color=line.get_color())
+    ax.set_xlabel("Rounds")
+    ax.set_ylabel("Accuracy")
+    ax.set_ylim(-0.05, 1.05)
+    ax.set_title("(e) accuracy")
+    ax.legend(loc="best", fontsize=8)
+
+    # (f1) oracle calls (step-equiv) linear
+    ax = axes[5]
+    means = [mean_std(o)[0] for o in orc_list]
+    stds  = [mean_std(o)[1] for o in orc_list]
+    ax.bar(np.arange(nA), means, yerr=stds, capsize=6)
+    ax.set_xticks(np.arange(nA))
+    ax.set_xticklabels(names, rotation=45, ha="right")
+    ax.set_ylabel("Avg oracle calls\n(step-equiv.)")
+    ax.set_title("(f1) oracle calls")
+    ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+
+    # (f2) oracle calls (step-equiv) log
+    ax = axes[6]
+    orc_pos = [np.clip(np.asarray(o, dtype=float), 1e-12, None) for o in orc_list]
+    means = [mean_std(o)[0] for o in orc_pos]
+    stds  = [mean_std(o)[1] for o in orc_pos]
+    ax.bar(np.arange(nA), means, yerr=stds, capsize=6)
+    ax.set_yscale("log")
+    ax.set_xticks(np.arange(nA))
+    ax.set_xticklabels(names, rotation=45, ha="right")
+    ax.set_ylabel("Avg oracle calls\n(step-equiv.)")
+    ax.set_title("(f2) oracle calls (log)")
+
+    fig.tight_layout()
+    fig.savefig(save_path, dpi=300, bbox_inches="tight")
+    print(f"Saved plot to: {save_path}")
+    plt.show()
 
 
 
@@ -396,8 +533,37 @@ if __name__ == "__main__":
         seed=0,
     )
 
+    ALG_MLINGAPE = dict(
+        m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0,
+        selection_rule="largest_variance",   # or "greedy" or "optimized"
+    )
+
+    ALG_GIFA = dict(
+        m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0,
+        selection_rule="largest_variance",   # or "greedy"
+    )
+
+    ALG_XTREME = dict(
+        m=10,
+        k=1,                 # keep k=1 for apples-to-apples with other top-m id baselines
+        r=1,                 # IGW slots (must satisfy 1 <= r <= k)
+        lam=1.0,
+        gamma_C=1.0,
+        branching=2,
+        beam_size=ENV_CFG["num_paths"],  # safe: beam won't prune anything
+        seed=0,
+
+        # If you want reward squashing ONLY for eXtreme and NOT in the env:
+        squash_rewards=True,
+        sigmoid_alpha=5.0,
+        sigmoid_beta=0.0,
+        sigmoid_clip=35.0,
+    )
+
+
+
     N_TRIALS = 10
-    MAX_ROUNDS = 5000
+    MAX_ROUNDS = 10_000
     # Deterministic trial seeds (same seeds used for BOTH algorithms)
     trial_seeds = list(range(N_TRIALS))
     assert len(trial_seeds) == N_TRIALS
@@ -495,6 +661,113 @@ if __name__ == "__main__":
         algo._name = "CASE"
         algo._oracle_cost = lambda path_id, paths=env.paths: len(paths[int(path_id)])
         return algo
+    
+    def make_algo_mlingape(k):
+        seed_k = trial_seeds[k]
+        env = ReasoningEnvironment(**ENV_CFG, seed=seed_k)
+
+        true_scores = env.get_ground_truth()
+        sorted_truth = sorted(true_scores.items(), key=lambda x: x[1], reverse=True)
+        true_top_m = [pid for pid, _ in sorted_truth[:ALG_MLINGAPE["m"]]]
+
+        fair = FairOracle(env, seed_k)
+
+        algo = m_LinGapE(
+            paths=env.paths,
+            feature_matrix=env.feature_matrix,
+            m=ALG_MLINGAPE["m"],
+            d=ENV_CFG["dim"],
+            lambda_reg=ALG_MLINGAPE["lambda_reg"],
+            epsilon=ALG_MLINGAPE["epsilon"],
+            delta=ALG_MLINGAPE["delta"],
+            R=ALG_MLINGAPE["R"],
+            S_0=ALG_MLINGAPE["S_0"],
+            selection_rule=ALG_MLINGAPE["selection_rule"],
+            seed=seed_k,
+        )
+
+        algo._env = env
+        algo._oracle = fair.path
+        algo._true_top_m = true_top_m
+        algo._name = f"m-LinGapE({ALG_MLINGAPE['selection_rule']})"
+        algo._oracle_cost = lambda path_id, paths=env.paths: len(paths[int(path_id)])
+        return algo
+
+
+    def make_algo_gifa(k):
+        seed_k = trial_seeds[k]
+        env = ReasoningEnvironment(**ENV_CFG, seed=seed_k)
+
+        true_scores = env.get_ground_truth()
+        sorted_truth = sorted(true_scores.items(), key=lambda x: x[1], reverse=True)
+        true_top_m = [pid for pid, _ in sorted_truth[:ALG_GIFA["m"]]]
+
+        fair = FairOracle(env, seed_k)
+
+        algo = LinGIFA(
+            paths=env.paths,
+            feature_matrix=env.feature_matrix,
+            m=ALG_GIFA["m"],
+            d=ENV_CFG["dim"],
+            lambda_reg=ALG_GIFA["lambda_reg"],
+            epsilon=ALG_GIFA["epsilon"],
+            delta=ALG_GIFA["delta"],
+            R=ALG_GIFA["R"],
+            S_0=ALG_GIFA["S_0"],
+            selection_rule=ALG_GIFA["selection_rule"],
+            seed=seed_k,
+        )
+
+        algo._env = env
+        algo._oracle = fair.path
+        algo._true_top_m = true_top_m
+        algo._name = f"LinGIFA({ALG_GIFA['selection_rule']})"
+        algo._oracle_cost = lambda path_id, paths=env.paths: len(paths[int(path_id)])
+        return algo
+    
+
+    def make_algo_xtreme(k):
+        seed_k = trial_seeds[k]
+        env = ReasoningEnvironment(**ENV_CFG, seed=seed_k)
+
+        # truth
+        true_scores = env.get_ground_truth()
+        sorted_truth = sorted(true_scores.items(), key=lambda x: x[1], reverse=True)
+        true_top_m = [pid for pid, _ in sorted_truth[:ALG_XTREME["m"]]]
+
+        fair = FairOracle(env, seed_k)
+
+        # --- optional: sigmoid squashing ONLY for eXtreme (NOT for baselines) ---
+
+        oracle_xtreme = fair.path
+
+        algo = XtremeAlg3OnPaths(
+            num_paths=ENV_CFG["num_paths"],
+            m=ALG_XTREME["m"],
+            k=ALG_XTREME["k"],
+            r=ALG_XTREME["r"],
+            beam_size=ALG_XTREME["beam_size"],
+            branching=ALG_XTREME["branching"],
+            lam=ALG_XTREME["lam"],
+            gamma_C=ALG_XTREME["gamma_C"],
+            seed=seed_k,
+            name="eXtreme(Alg3)", 
+
+            squash_rewards=ALG_XTREME["squash_rewards"],
+            sigmoid_alpha=ALG_XTREME["sigmoid_alpha"],
+            sigmoid_beta=ALG_XTREME["sigmoid_beta"],
+            sigmoid_clip=ALG_XTREME.get("sigmoid_clip", 35.0),
+        )
+
+
+        algo._env = env
+        algo._oracle = oracle_xtreme
+        algo._true_top_m = true_top_m
+        algo._name = "eXtreme(Alg3)"
+        algo._oracle_cost = lambda path_id, paths=env.paths: len(paths[int(path_id)])  # step-equiv cost
+        return algo
+
+
 
 
 
@@ -518,7 +791,20 @@ if __name__ == "__main__":
         log_every=50,
     )
 
-    # ---------------------------
+    res_mlingape = run_trials(make_algo_mlingape, n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50)
+    res_gifa     = run_trials(make_algo_gifa,     n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50)
+    res_xtreme = run_trials(make_algo_xtreme, n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50)
+
+
+    plot_compare(res_pgiha, res_mlingape, nameA="P-GIHA", nameB="m-LinGapE", epsilon=ALG_PGIHA["epsilon"], save_path="compare_pgiha_mlingape.png")
+    plot_compare(res_pgiha, res_gifa,     nameA="P-GIHA", nameB="LinGIFA",   epsilon=ALG_PGIHA["epsilon"], save_path="compare_pgiha_gifa.png")
+    plot_compare(res_case,  res_mlingape, nameA="CASE",   nameB="m-LinGapE", epsilon=ALG_CASE["epsilon"],  save_path="compare_case_mlingape.png")
+    plot_compare(res_case,  res_gifa,     nameA="CASE",   nameB="LinGIFA",   epsilon=ALG_CASE["epsilon"],  save_path="compare_case_gifa.png")
+    plot_compare(res_case, res_xtreme, nameA="CASE", nameB="eXtreme", epsilon=ALG_CASE["epsilon"], save_path="compare_case_xtreme.png")
+    plot_compare(res_pgiha, res_xtreme, nameA="P-GIHA", nameB="eXtreme", epsilon=ALG_PGIHA["epsilon"], save_path="compare_pgiha_xtreme.png")
+
+
+    # ---------------------------
     # Plot comparison (NOTE: new plot_compare expects the 5-output tuples)
     # ---------------------------
     plot_compare(
@@ -527,5 +813,21 @@ if __name__ == "__main__":
         nameA="P-GIHA",
         nameB="CASE",
         epsilon=ALG_PGIHA["epsilon"],
-        save_path="compare_pgiha_case_with_acc.png",
+        save_path="compare_pgiha_case.png",
     )
+
+    all_results = {
+        "P-GIHA": res_pgiha,
+        "CASE": res_case,
+        "m-LinGapE": res_mlingape,
+        "LinGIFA": res_gifa,
+        "eXtreme(Alg3)": res_xtreme,
+    }
+
+
+    plot_compare_all(
+        all_results,
+        epsilon=ALG_PGIHA["epsilon"],   # (or a shared epsilon you set for all algs)
+        save_path="compare_all_algorithms.png",
+    )
+

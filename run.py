@@ -1,7 +1,7 @@
 import numpy as np
-from P_GIHA import P_GIHA
-import time
-import matplotlib.pyplot as plt
+
+# (or whatever filename you saved the eXtreme single-file implementation as)
+
 
 
 # --- 1. Synthetic Environment Generator (Linear) ---
