@@ -79,7 +79,7 @@ def evaluate_path(prompt, path):
 # ======================
 # LOAD DATA
 # ======================
-with open("data/Deepseek-Math-RL-7B.json") as f:
+with open("data/Deepseek-MathOdyssey-RL-7B.json") as f:
 	data = json.load(f)
 
 
