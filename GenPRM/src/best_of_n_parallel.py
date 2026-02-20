@@ -1,137 +1,125 @@
-import os
-import sys
 import json
-from statistics import mean
-import numpy as np
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
+from collections import defaultdict
 from text_utils import strip_string
-
-sys.path.append('..')
-from prm_evaluation.genprm_inference import GenPRM
-from prm_evaluation.genprm_inference import CodeExecutor
-
+from prm import ThinkPRM
+from statistics import mean
 
 # ======================
-# Init model (ONLY ONCE)
+# CONFIG
 # ======================
-genprm = GenPRM('GenPRM/GenPRM-1.5B', tensor_parallel_size=1)
-code_executor = CodeExecutor()
+BATCH_SIZE = 64
 
-SYSTEM_MSG = {
-    "content": "You are a math teacher. Your task is to review and critique the paragraphs in solution step by step.",
-    "role": "system"
-}
-
-
-# ======================
-# FAST PATH EVALUATION
-# ======================
-def evaluate_path(prompt, path):
-
-    reward_sum = 0.0
-    reward_count = 0
-
-    messages = [SYSTEM_MSG.copy()]
-
-    steps = path.split(".\n")
-
-    messages.append({
-        "role": "user",
-        "content": "Question: " + prompt + "\n\n" + steps[0]
-    })
-    messages.append({"role": "assistant", "content": ""})
-
-    for step in steps[1:]:
-        messages.append({"role": "user", "content": step})
-        messages.append({"role": "assistant", "content": ""})
-    #print("messages",len(messages))
-    # IMPORTANT:
-    # avoid messages[:i] slicing (huge speedup)
-    context = []
-
-    for i, msg in enumerate(messages):
-
-        if msg["role"] == "assistant":
-            try:
-                output, reward = genprm.inference(
-                    context,
-                    cur_step=i,
-                    code_executor=code_executor,
-                    logging=False
-                )
-
-                msg["content"] = output[0]
-                reward_sum += reward
-                reward_count += 1
-
-            except Exception:
-                pass
-
-        context.append(msg)
-
-    if reward_count == 0:
-        return 0.0
-
-    return reward_sum / reward_count
-
+prm = ThinkPRM(
+    model_name_or_path="launch/ThinkPRM-1.5B",
+    max_length=2048,
+    temperature=0.0,
+    n=1
+)
 
 # ======================
 # LOAD DATA
 # ======================
 with open("data/Deepseek-MathOdyssey-RL-7B.json") as f:
-	data = json.load(f)
+    data = json.load(f)
 
+# ======================
+# PREP TRACKING STRUCTURES
+# ======================
+scores_dict = {}
+remaining_paths = {}
+processed_question = set()
+
+for idx in range(len(data["answer"])):
+    remaining_paths[idx] = len(data["completion"][idx])
 
 exact_match = 0
 mismatches = 0
 
+# ======================
+# STREAM BUFFER
+# ======================
+buffer_questions = []
+buffer_steps = []
+buffer_meta = []   # (q_idx, path_id)
+
+def flush_buffer():
+    global exact_match, mismatches
+
+    if not buffer_questions:
+        return
+
+    # SINGLE GPU CALL
+    results = prm.predict_correctness_batch(
+        questions=buffer_questions,
+        prefix_steps_batch=buffer_steps
+    )
+
+    # STORE RESULTS
+    for meta, res in zip(buffer_meta, results):
+
+        q_idx, path_id = meta
+
+        scores_dict[(q_idx, path_id)] = mean(res["step_labels"][0])
+        remaining_paths[q_idx] -= 1
+        print("ssss",len(res["step_labels"][0]))
+
+        # CHECK IF QUESTION COMPLETE
+        if remaining_paths[q_idx] == 0 and q_idx not in processed_question:
+
+            processed_question.add(q_idx)
+
+            paths = data["completion"][q_idx]
+
+            path_scores = [
+                scores_dict[(q_idx, i)] for i in range(len(paths))
+            ]
+
+            max_idx = max(range(len(path_scores)), key=path_scores.__getitem__)
+
+            winning_path = paths[max_idx].lower().replace("\n", "")
+
+            winning_path = winning_path.split("the answer is:")[-1]
+            if "\\boxed" in winning_path:
+                winning_path = winning_path.replace("\\boxed{","").replace("}","")
+            winning_path = strip_string(winning_path.replace("$", ""))
+
+            ground_truth = strip_string(data["answer"][q_idx])
+
+            print("winning_path**", path_scores,q_idx, winning_path, ground_truth.strip().lower())
+
+            if winning_path.strip().lower() == ground_truth.strip().lower():
+                exact_match += 1
+            else:
+                mismatches += 1
+
+            print("EM so far", exact_match/(exact_match+mismatches))
+
+    # CLEAR BUFFER
+    buffer_questions.clear()
+    buffer_steps.clear()
+    buffer_meta.clear()
+
 
 # ======================
-# MAIN LOOP
+# STREAMING LOOP
 # ======================
-for idx in range(len(data["answer"])):
+for q_idx in range(len(data["answer"])):
 
-    prompt = data["prompt"][idx]
-    paths = data["completion"][idx]
-    print("paths",len(paths))
+    prompt = data["prompt"][q_idx]
+    paths = data["completion"][q_idx]
 
-    path_scores = [0.0] * len(paths)
+    for path_id, path in enumerate(paths):
 
-    #  PARALLEL EXECUTION ACROSS PATHS
-    # Adjust workers based on GPU capacity
-    with ThreadPoolExecutor(max_workers=4) as executor:
+        steps = path.split(".\n")
 
-        futures = {
-            executor.submit(evaluate_path, prompt, path): i
-            for i, path in enumerate(paths)
-        }
+        buffer_questions.append(prompt)
+        buffer_steps.append(steps)
+        buffer_meta.append((q_idx, path_id))
 
-        for future in as_completed(futures):
-            i = futures[future]
-            path_scores[i] = future.result()
+        if len(buffer_questions) >= BATCH_SIZE:
+            flush_buffer()
 
-    print("index", idx)
+# FLUSH REMAINDER
+flush_buffer()
 
-    # faster argmax (no numpy needed)
-    max_idx = max(range(len(path_scores)), key=path_scores.__getitem__)
-
-    winning_path = paths[max_idx].lower().replace("\n", "")
-    winning_path = winning_path.split("the answer is:")[-1]
-    winning_path = strip_string(winning_path.replace("$", ""))
-
-    ground_truth = strip_string(data["answer"][idx])
-
-    print("winning_path**", winning_path, ground_truth.strip().lower())
-
-    if "boxed" in winning_path:
-        winning_path = winning_path.replace("\\boxed{","").replace("}","")
-
-    if winning_path.strip().lower() == ground_truth.strip().lower():
-        exact_match += 1
-    else:
-        mismatches += 1
-
-    print("EM so far", exact_match / (exact_match + mismatches))
-
-print("Final EM", exact_match / (exact_match + mismatches))
+print("Final EM", exact_match/(exact_match+mismatches))
