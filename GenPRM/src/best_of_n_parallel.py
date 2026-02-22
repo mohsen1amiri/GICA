@@ -2,7 +2,8 @@ import json
 from collections import defaultdict
 from text_utils import strip_string
 from prm import ThinkPRM
-from statistics import mean
+from statistics import mean, stdev
+import time
 
 # ======================
 # CONFIG
@@ -11,7 +12,7 @@ BATCH_SIZE = 64
 
 prm = ThinkPRM(
     model_name_or_path="launch/ThinkPRM-1.5B",
-    max_length=2048,
+    max_length=4096,
     temperature=0.0,
     n=1
 )
@@ -19,7 +20,7 @@ prm = ThinkPRM(
 # ======================
 # LOAD DATA
 # ======================
-with open("data/Deepseek-MathOdyssey-RL-7B.json") as f:
+with open("data/Deepseek-AIME-RL-7B.json") as f:
     data = json.load(f)
 
 # ======================
@@ -29,7 +30,7 @@ scores_dict = {}
 remaining_paths = {}
 processed_question = set()
 
-for idx in range(len(data["answer"])):
+for idx in range(len(data["answer"][:400])):
     remaining_paths[idx] = len(data["completion"][idx])
 
 exact_match = 0
@@ -80,7 +81,9 @@ def flush_buffer():
 
             winning_path = winning_path.split("the answer is:")[-1]
             if "\\boxed" in winning_path:
-                winning_path = winning_path.replace("\\boxed{","").replace("}","")
+                winning_path = winning_path.replace("\\boxed{","")
+                k = winning_path.rfind("}")
+                winning_path = winning_path[:k] #+ "" + winning_path[k+1:]
             winning_path = strip_string(winning_path.replace("$", ""))
 
             ground_truth = strip_string(data["answer"][q_idx])
@@ -103,7 +106,10 @@ def flush_buffer():
 # ======================
 # STREAMING LOOP
 # ======================
-for q_idx in range(len(data["answer"])):
+times = []
+
+for q_idx in range(len(data["answer"][:400])):
+    start = time.time()
 
     prompt = data["prompt"][q_idx]
     paths = data["completion"][q_idx]
@@ -118,8 +124,10 @@ for q_idx in range(len(data["answer"])):
 
         if len(buffer_questions) >= BATCH_SIZE:
             flush_buffer()
+    end = time.time()
+    times.append(end-start)
 
 # FLUSH REMAINDER
 flush_buffer()
 
-print("Final EM", exact_match/(exact_match+mismatches))
+print("Final EM", exact_match/(exact_match+mismatches), mean(times), stdev(times))
