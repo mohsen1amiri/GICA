@@ -20,7 +20,7 @@ prm = ThinkPRM(
 # ======================
 # LOAD DATA
 # ======================
-with open("data/Deepseek-AIME-RL-7B.json") as f:
+with open("/home/dsv/vevi4591/GIHA/GenPRM/src/data/Deepseek-AIME-RL-7B.json") as f:
     data = json.load(f)
 
 # ======================
@@ -42,7 +42,7 @@ mismatches = 0
 buffer_questions = []
 buffer_steps = []
 buffer_meta = []   # (q_idx, path_id)
-
+responses = {"qid":[],"path_scores":[]}
 def flush_buffer():
     global exact_match, mismatches
 
@@ -74,6 +74,8 @@ def flush_buffer():
             path_scores = [
                 scores_dict[(q_idx, i)] for i in range(len(paths))
             ]
+            responses["qid"].append(q_idx)
+            responses["path_scores"].append(path_scores)
 
             max_idx = max(range(len(path_scores)), key=path_scores.__getitem__)
 
@@ -126,6 +128,9 @@ for q_idx in range(len(data["answer"][:400])):
             flush_buffer()
     end = time.time()
     times.append(end-start)
+    with open("final_path_scores_AIME.json","w") as f:
+        json.dump(responses,f)
+
 
 # FLUSH REMAINDER
 flush_buffer()
