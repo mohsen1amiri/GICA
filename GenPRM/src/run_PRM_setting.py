@@ -283,7 +283,7 @@ if __name__ == "__main__":
         data = json.load(f)
     exact_match = 0
     total=0
-    for idx in range(len(data["answer"][:40])):
+    for idx in range(len(data["answer"])):
         start = time.time()
         print("\n============================")
         print(f"QUESTION {idx}")
