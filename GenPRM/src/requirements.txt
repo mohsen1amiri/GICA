@@ -2,6 +2,7 @@ vllm==0.7.1
 transformers==4.48.2
 logits-processor-zoo==0.2.0
 scipy
+scikit-learn==1.7.2
 traitlets>=5.3
 jupyter-client>=7.4.4
 jupyter-core!=5.0.*,>=4.12
