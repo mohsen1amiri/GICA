@@ -29,8 +29,8 @@ def compute_em_from_top_m(question, paths, answers, q_idx, top_m):
             questions=[question],
             prefix_steps_batch=[steps]
         )[0]
-        print("final_ranking",steps,res["step_labels"][0])
-        scores_prefix.append(mean(res["step_labels"][0]))
+        print("final_ranking",steps,res["prefix_score"])
+        scores_prefix.append(res["prefix_score"])
     winning_pid = sorted(zip(top_m,scores_prefix), key= lambda x: x[1], reverse=True)[0][0]
     print("top m", [paths[pid_win].split("The answer is:")[-1] for pid_win in top_m])
     winning_path = paths[winning_pid]
@@ -68,7 +68,7 @@ prm = ThinkPRM(
     n=1
 )
 
-embedder = SentenceTransformer("all-MiniLM-L6-v2",device="cuda:1")
+embedder = SentenceTransformer("all-MiniLM-L6-v2",device="cuda")
 
 
 # ---------------------------
@@ -231,7 +231,7 @@ class PRMEnvironment:
             prefix_steps_batch=[prefix_steps]
         )[0]
        # print("prefix",res["prefix_score"])
-        return float(mean(res["step_labels"][0]))
+        return float(res["prefix_score"])
 
 
 # ---------------------------
@@ -295,22 +295,28 @@ if __name__ == "__main__":
         data = json.load(f)
     exact_match = 0
     total=0
-    for idx in range(len(data["answer"][:40])):
+    iterations_data = {"qid":[],"iter":[]}
+    for idx in range(len(data["answer"])):
         start = time.time()
         print("\n============================")
         print(f"QUESTION {idx}")
-        em = run_prm_experiment(
+        em, iterat = run_prm_experiment(
             data["prompt"][idx],#.replace("Please reason step by step, and put your final answer within \\boxed{}",""),
             data["completion"][idx],
             data["answer"],
             idx
         )
 
+
         exact_match += em
+        iterations_data["qid"].append(idx+1)
+        iterations_data.append(iterat)
         total += 1
         end = time.time()
         times.append(end-start)
 
         print("EM so far:", exact_match / total, mean(times))
+        iterations_data = pd.DataFrame(iterations_data)
+        iterations_data.to_csv("qid_iterations_mathodyssey_over_top_m_step_labels.csv",index=False)
 
     print("Final EM:", (exact_match / total), mean(times),stdev(times))

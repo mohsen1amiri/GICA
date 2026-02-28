@@ -230,7 +230,7 @@ class PRMEnvironment:
             questions=[self.question],
             prefix_steps_batch=[prefix_steps]
         )[0]
-       # print("prefix",res["prefix_score"])
+        print("prefix",res["prefix_score"])
         return float(res["prefix_score"])
 
 
@@ -281,7 +281,7 @@ def run_prm_experiment(question, paths, answers, q_idx):
         top_m
     )
 
-    return em
+    return em, t
 
 
 # ---------------------------
@@ -295,22 +295,28 @@ if __name__ == "__main__":
         data = json.load(f)
     exact_match = 0
     total=0
-    for idx in range(len(data["answer"][:40])):
+    iterations_data = {"qid":[],"iter":[]}
+    for idx in range(len(data["answer"])):
         start = time.time()
         print("\n============================")
         print(f"QUESTION {idx}")
-        em = run_prm_experiment(
+        em, iterat = run_prm_experiment(
             data["prompt"][idx],#.replace("Please reason step by step, and put your final answer within \\boxed{}",""),
             data["completion"][idx],
             data["answer"],
             idx
         )
 
+
         exact_match += em
+        iterations_data["qid"].append(idx+1)
+        iterations_data.append(iterat)
         total += 1
         end = time.time()
         times.append(end-start)
 
         print("EM so far:", exact_match / total, mean(times))
+        iterations_data = pd.DataFrame(iterations_data)
+        iterations_data.to_csv("qid_iterations_mathodyssey_over_top_m.csv",index=False)
 
     print("Final EM:", (exact_match / total), mean(times),stdev(times))
