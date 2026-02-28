@@ -310,7 +310,7 @@ if __name__ == "__main__":
 
         exact_match += em
         iterations_data["qid"].append(idx+1)
-        iterations_data.append(iterat)
+        iterations_data["iter"].append(iterat)
         total += 1
         end = time.time()
         times.append(end-start)
