@@ -282,7 +282,7 @@ def run_prm_experiment(question, paths, answers, q_idx):
         top_m
     )
 
-    return em
+    return em, t
 
 
 # ---------------------------
