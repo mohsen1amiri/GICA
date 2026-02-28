@@ -317,7 +317,7 @@ if __name__ == "__main__":
         times.append(end-start)
 
         print("EM so far:", exact_match / total, mean(times))
-        iterations_data = pd.DataFrame(iterations_data)
-        iterations_data.to_csv("qid_iterations_mathodyssey_over_top_m_step_labels.csv",index=False)
+        iterations_data_1 = pd.DataFrame(iterations_data)
+        iterations_data_1.to_csv("qid_iterations_mathodyssey_over_top_m_step_labels.csv",index=False)
 
     print("Final EM:", (exact_match / total), mean(times),stdev(times))
