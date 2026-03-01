@@ -71,7 +71,7 @@ prm = ThinkPRM(
     n=1
 )
 
-embedder = SentenceTransformer("all-MiniLM-L6-v2",device="cuda:1")
+embedder = SentenceTransformer("all-MiniLM-L6-v2",device="cuda")
 
 
 # ---------------------------
