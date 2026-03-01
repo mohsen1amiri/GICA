@@ -340,6 +340,6 @@ if __name__ == "__main__":
         print("EM so far:", exact_match / total, mean(times))
         iterations_data_1 = pd.DataFrame(iterations_data)
         baseline_name = args.baseline_name
-        iterations_data_1.to_csv("{baseline_name}_iterations_mathodyssey_over_top_m.csv".format(baseline_name),index=False)
+        iterations_data_1.to_csv("{}_iterations_mathodyssey_over_top_m.csv".format(baseline_name),index=False)
 
     print("Final EM:", (exact_match / total), mean(times),stdev(times))
