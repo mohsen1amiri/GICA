@@ -71,7 +71,7 @@ prm = ThinkPRM(
     n=1
 )
 
-embedder = SentenceTransformer("all-MiniLM-L6-v2",device="cuda")
+embedder = SentenceTransformer("all-MiniLM-L6-v2",device="cuda:0")
 
 
 # ---------------------------
@@ -310,7 +310,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     times = []
 
-    with open("/home/dsv/vevi4591/GIHA/GenPRM/src/data/Deepseek-MathOdyssey-RL-7B.json") as f:
+    with open("./data/Deepseek-MathOdyssey-RL-7B.json") as f:
         data = json.load(f)
     exact_match = 0
     total=0

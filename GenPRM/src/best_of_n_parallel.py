@@ -20,7 +20,7 @@ prm = ThinkPRM(
 # ======================
 # LOAD DATA
 # ======================
-with open("/home/dsv/vevi4591/GIHA/GenPRM/src/data/Deepseek-AIME-RL-7B.json") as f:
+with open("./data/Deepseek-AIME-RL-7B.json") as f:
     data = json.load(f)
 
 # ======================

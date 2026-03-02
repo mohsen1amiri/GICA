@@ -292,7 +292,7 @@ if __name__ == "__main__":
 
     times = []
 
-    with open("/home/dsv/vevi4591/GIHA/GenPRM/src/data/Deepseek-MathOdyssey-RL-7B.json") as f:
+    with open("./data/Deepseek-MathOdyssey-RL-7B.json") as f:
         data = json.load(f)
     exact_match = 0
     total=0

@@ -4,4 +4,6 @@ __pycache__/
 .venv/
 venv/
 .env
-/home/dsv/vevi4591/GIHA/GenPRM/src/data
+GenPRM/*
+commands
+
