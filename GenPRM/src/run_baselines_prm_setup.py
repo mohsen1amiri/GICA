@@ -9,6 +9,7 @@ from statistics import mean, stdev
 import time
 import numpy as np
 from m_lingape_llm_setup import m_LinGapE
+from GIFA_LLM_setup import LinGIFA
 from sklearn.metrics.pairwise import cosine_similarity
 
 import json
@@ -247,6 +248,18 @@ def run_prm_experiment(question, paths, answers, q_idx, baseline_name):
     if baseline_name.lower()=="case":
 
         p_giha = CASE(
+            paths=env.paths,
+            feature_matrix=env.feature_matrix,
+            m=5,
+            d=env.feature_matrix.shape[1],
+            lambda_reg=1.0,
+            epsilon=0.15,
+            delta=0.05,
+            R=0.1,
+            S_0=1.0,
+        )
+    elif baseline_name == "GIFA":
+        p_giha = LinGIFA(
             paths=env.paths,
             feature_matrix=env.feature_matrix,
             m=5,
