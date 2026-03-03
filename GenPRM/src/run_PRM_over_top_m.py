@@ -302,12 +302,12 @@ if __name__ == "__main__":
         idx1 = idx + 269
         start = time.time()
         print("\n============================")
-        print(f"QUESTION {idx}")
+        print(f"QUESTION {idx1}")
         em, iterat = run_prm_experiment(
-            data["prompt"][idx],#.replace("Please reason step by step, and put your final answer within \\boxed{}",""),
-            data["completion"][idx],
+            data["prompt"][idx1],#.replace("Please reason step by step, and put your final answer within \\boxed{}",""),
+            data["completion"][idx1],
             data["answer"],
-            idx
+            idx1
         )
 
 
