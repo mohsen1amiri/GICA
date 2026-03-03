@@ -266,9 +266,9 @@ def run_prm_experiment(question, paths, answers, q_idx):
         else:
             p_giha.patience=0
         previous_J = top_m
-        previous_topms.append(previous_topms)
+        previous_topms.append(top_m)
         
-        print(f"Iter {t} | Top paths: {top_m}")
+        print(f"Iter {t} | Top paths: {top_m}", p_giha.patience)
         t+=1
 
         if converged:
