@@ -261,7 +261,7 @@ def run_prm_experiment(question, paths, answers, q_idx):
     previous_topms = []
     while not done and p_giha.patience <10:
         converged, top_m = p_giha.select_and_update(env.oracle_callback)
-        if previous_J == top_m or ( t > 2 and (previous_topms[-1] == top_m or previous_topms[-2] == top_m)):
+        if previous_J == top_m or ( t > 2 and (previous_topms[-1] == top_m or previous_topms[-2] == top_m or previous_topms[-3] == top_m )):
             p_giha.patience+=1
         else:
             p_giha.patience=0
@@ -298,8 +298,8 @@ if __name__ == "__main__":
     exact_match = 0
     total=0
     iterations_data = {"qid":[],"iter":[]}
-    for idx in range(len(data["answer"][269:])):
-        idx1 = idx + 269
+    for idx in range(len(data["answer"][343:])):
+        idx1 = idx + 343
         start = time.time()
         print("\n============================")
         print(f"QUESTION {idx1}")
@@ -312,7 +312,7 @@ if __name__ == "__main__":
 
 
         exact_match += em
-        iterations_data["qid"].append(idx+269+1)
+        iterations_data["qid"].append(idx+343+1)
         iterations_data["iter"].append(iterat)
         total += 1
         end = time.time()
@@ -320,6 +320,6 @@ if __name__ == "__main__":
 
         print("EM so far:", exact_match / total, mean(times))
         iterations_data_1 = pd.DataFrame(iterations_data)
-        iterations_data_1.to_csv("qid_iterations_mathodyssey_over_top_m_269.csv",index=False)
+        iterations_data_1.to_csv("qid_iterations_mathodyssey_over_top_m_343.csv",index=False)
 
     print("Final EM:", (exact_match / total), mean(times),stdev(times))
