@@ -320,14 +320,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Linear Top-m identification Bandit Algorithms ')
     parser.add_argument('--baseline_name', type=str, 
                     help='baseline namee: lingape or CASE')
+    parser.add_argument('--file_path', type=str, 
+                    help='dataset file path: example: ./data/Deepseek-MathOdyssey-RL-7B.json')
+    parser.add_argument('--dataset_name', type=str, 
+                    help='dataset file path: example: Mathodyssey, AIME')
     args = parser.parse_args()
     times = []
 
-    with open("./data/Deepseek-MathOdyssey-RL-7B.json") as f:
+    with open("{}".format(args.file_path)) as f:
         data = json.load(f)
     exact_match = 0
     total=0
-    iterations_data = {"qid":[],"iter":[],"time":[]}
+    iterations_data = {"qid":[],"iter":[],"time":[], "EM": []}
     for idx in range(len(data["answer"])):
         start = time.time()
         print("\n============================")
@@ -348,11 +352,11 @@ if __name__ == "__main__":
         end = time.time()
         times.append(end-start)
         iterations_data["time"].append(end-start)
-
+        iterations_data["EM"].append(em)
 
         print("EM so far:", exact_match / total, mean(times))
         iterations_data_1 = pd.DataFrame(iterations_data)
         baseline_name = args.baseline_name
-        iterations_data_1.to_csv("{}_iterations_mathodyssey_over_top_m.csv".format(baseline_name),index=False)
+        iterations_data_1.to_csv("{}_iterations_{}_over_top_m.csv".format(baseline_name, args.dataset_name),index=False)
 
     print("Final EM:", (exact_match / total), mean(times),stdev(times))

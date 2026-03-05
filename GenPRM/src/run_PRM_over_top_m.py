@@ -4,6 +4,7 @@ from collections import defaultdict
 from text_utils import strip_string
 from prm import ThinkPRM
 import pandas as pd
+import argparse
 from statistics import mean, stdev
 import time
 import numpy as np
@@ -290,16 +291,21 @@ def run_prm_experiment(question, paths, answers, q_idx):
 # MAIN
 # ---------------------------
 if __name__ == "__main__":
-
+    parser = argparse.ArgumentParser(description='Linear Top-m identification Bandit Algorithms for TTS verification ')
+    parser.add_argument('--file_path', type=str, 
+                    help='dataset file path: example: ./data/Deepseek-MathOdyssey-RL-7B.json')
+    parser.add_argument('--dataset_name', type=str, 
+                    help='dataset file path: example: Mathodyssey, AIME')
     times = []
+    args = parser.parse_args()
 
-    with open("./data/Deepseek-MathOdyssey-RL-7B.json") as f:
+    with open("{}".format(args.file_path)) as f:
         data = json.load(f)
     exact_match = 0
     total=0
-    iterations_data = {"qid":[],"iter":[]}
-    for idx in range(len(data["answer"][343:])):
-        idx1 = idx + 343
+    iterations_data = {"qid":[],"iter":[], "time":[],"EM":[]}
+    for idx in range(len(data["answer"])):
+        idx1 = idx
         start = time.time()
         print("\n============================")
         print(f"QUESTION {idx1}")
@@ -312,14 +318,15 @@ if __name__ == "__main__":
 
 
         exact_match += em
-        iterations_data["qid"].append(idx+343+1)
+        iterations_data["qid"].append(idx+1)
         iterations_data["iter"].append(iterat)
         total += 1
         end = time.time()
         times.append(end-start)
-
+        iterations_data["time"].append(end-start)
+        iterations_data["EM"].append(em)
         print("EM so far:", exact_match / total, mean(times))
         iterations_data_1 = pd.DataFrame(iterations_data)
-        iterations_data_1.to_csv("qid_iterations_mathodyssey_over_top_m_343.csv",index=False)
+        iterations_data_1.to_csv("qid_iterations_GIHA_{}_over_top_m.csv".format(args.dataset_name),index=False)
 
     print("Final EM:", (exact_match / total), mean(times),stdev(times))
