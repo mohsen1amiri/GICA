@@ -324,6 +324,8 @@ if __name__ == "__main__":
                     help='dataset file path: example: ./data/Deepseek-MathOdyssey-RL-7B.json')
     parser.add_argument('--dataset_name', type=str, 
                     help='dataset file path: example: Mathodyssey, AIME')
+    parser.add_argument('--data_limit', type=str, 
+                    help='dataset file path: example - give number of samples like 100, 400 or so')
     args = parser.parse_args()
     times = []
 
@@ -332,7 +334,7 @@ if __name__ == "__main__":
     exact_match = 0
     total=0
     iterations_data = {"qid":[],"iter":[],"time":[], "EM": []}
-    for idx in range(len(data["answer"])):
+    for idx in range(len(data["answer"][:int(args.data_limit)])):
         start = time.time()
         print("\n============================")
         print(f"QUESTION {idx}")
