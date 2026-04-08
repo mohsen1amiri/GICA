@@ -44,7 +44,11 @@ def compute_em_from_top_m(question, paths, answers, q_idx, top_m):
     # -------------------------
     winning_path = winning_path.lower().replace("\n", "")
 
-    winning_path = winning_path.split("the answer is:")[-1]
+    if "the answer is" in winning_path:
+        winning_path = winning_path.split("the answer is:")[-1]
+    else:
+        winning_path = winning_path.split("the final answer is")[-1]
+        
     if "\\boxed" in winning_path:
         winning_path = winning_path.replace("\\boxed{","")
         k = winning_path.rfind("}")
@@ -66,7 +70,7 @@ def compute_em_from_top_m(question, paths, answers, q_idx, top_m):
 # Models
 # ---------------------------
 prm = ThinkPRM(
-    model_name_or_path="launch/ThinkPRM-1.5B",
+    model_name_or_path="launch/ThinkPRM-7B",
     temperature=0.0,
     max_length=3000,
     n=1
