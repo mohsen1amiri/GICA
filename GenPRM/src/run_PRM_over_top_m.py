@@ -41,8 +41,10 @@ def compute_em_from_top_m(question, paths, answers, q_idx, top_m):
     # Extract predicted answer
     # -------------------------
     winning_path = winning_path.lower().replace("\n", "")
-
-    winning_path = winning_path.split("the answer is:")[-1]
+    if "the answer is" in winning_path:
+        winning_path = winning_path.split("the answer is:")[-1]
+    else:
+        winning_path = winning_path.split("the final answer is")[-1]
     if "\\boxed" in winning_path:
         winning_path = winning_path.replace("\\boxed{","")
         k = winning_path.rfind("}")
@@ -64,7 +66,7 @@ def compute_em_from_top_m(question, paths, answers, q_idx, top_m):
 # Models
 # ---------------------------
 prm = ThinkPRM(
-    model_name_or_path="launch/ThinkPRM-1.5B",
+    model_name_or_path="launch/ThinkPRM-7B",
     temperature=0.0,
     max_length=3000,
     n=1
@@ -260,7 +262,7 @@ def run_prm_experiment(question, paths, answers, q_idx):
     t=0
     done = False
     previous_topms = []
-    while not done and p_giha.patience <10:
+    while not done and p_giha.patience <6:
         converged, top_m = p_giha.select_and_update(env.oracle_callback)
         if previous_J == top_m or ( t > 2 and (previous_topms[-1] == top_m or previous_topms[-2] == top_m or previous_topms[-3] == top_m )):
             p_giha.patience+=1
