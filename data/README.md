@@ -13,8 +13,6 @@ ground-truth answer.
 
 and drop the files into **this `data/` folder** (repository root → `data/`).
 
-> If you are working from the *original* upstream layout instead of this unified repository,
-> the same files go into `GenPRM/src/data/`.
 
 ## Expected files
 
@@ -30,8 +28,6 @@ data/
 └── InternLM2-AIME-RL-7B.json         # AIME,         generator = InternLM2-Math-Plus-7B
 ```
 
-(Exact filenames may vary slightly with the Drive contents; pass the correct path with
-`--file_path` to the CLI drivers.)
 
 ## Schema
 
