@@ -9,13 +9,10 @@
 
 **Test-time scaling (TTS)** improves the reasoning of large language models (LLMs) by sampling
 many candidate chain-of-thought (CoT) solutions and using a **verifier** to select among them.
-**Process reward models (PRMs)** that score *every intermediate step* — especially recent
-*reasoning-based* PRMs that generate a long verification chain-of-thought before emitting a score —
-are the most accurate verifiers, but they are prohibitively expensive: their cost grows with both
-the number of candidate paths `M` and the number of steps per path.
+**Process reward models (PRMs)** that score *every intermediate step*, especially recent
+*reasoning-based* PRMs that generate a long verification CoT before emitting a score, are the most accurate verifiers, but they are prohibitively expensive: their cost grows with both the number of candidate paths `M` and the number of steps per path.
 
-**GICA** makes fine-grained, step-level verification practical at scale. It recasts process-level
-verification as a **fixed-confidence top-K identification problem over compositional arms**: each
+**GICA** makes fine-grained, step-level verification practical at scale. It recasts process-level verification as a **fixed-confidence top-K identification problem over compositional arms**, i.e., each
 reasoning path is a *parent arm* whose feature is the length-normalized average of its step
 features under a *shared* linear utility model. Because every step query updates the shared
 parameter, **one verifier call informs every path at once**. GICA adaptively queries only the most
@@ -34,14 +31,12 @@ This repository contains **two self-contained experimental tracks**:
   efficiency on compositional top-K instances with a known ground-truth parameter. CPU-only,
   deterministic, runs in seconds. Reproduces **Figure 3**.
 - **Track 2 — Test-Time Scaling** (`src/gica/tts/` + `scripts/tts/`): the end-to-end TTS pipeline
-  with an LLM generator (pre-computed paths), a ThinkPRM verifier, and GICA / baseline selection.
+  with an LLM generator (pre-computed paths), a ThinkPRM verifier, and GICA or baseline selection.
   Requires CUDA GPUs and vLLM. Reproduces **Figures 4–5** and **Tables 1 & 5**.
 
 ### A note on naming (important)
 
-The algorithm’s development name was **`P_GIHA`**; throughout the code it has been renamed to its
-publication name **`GICA`**. Two further conventions are worth knowing when cross-referencing the
-paper:
+The conventions are worth knowing when cross-referencing the paper:
 
 | In the code                       | In the paper                                 |
 |-----------------------------------|----------------------------------------------|
@@ -50,7 +45,6 @@ paper:
 | `total_comparisons`               | number of gap-index comparisons              |
 | `best_G_history`                  | per-round hardest boundary gap-index `G_t`   |
 | `min_lcb_history`                 | stopping quantity `Γ_t = min(Δ̂ − W)`        |
-| `XtremeAlg3OnPaths` (IGW)         | an **optional extra** baseline, **not** reported in the paper |
 
 ---
 
@@ -76,7 +70,6 @@ GICA/
 │   │   ├── baseline_case.py          # CASE baseline (Purohit et al., 2025)
 │   │   ├── baseline_lingifa.py       # LinGIFA baseline (Réda et al., 2021)
 │   │   ├── baseline_mlingape.py      # m-LinGapE baseline (Xu et al., 2018)
-│   │   ├── baseline_igw_extreme.py   # OPTIONAL IGW hierarchical bandit — not in the paper
 │   │   └── benchmark.py              # ★ multi-seed benchmark harness + figure generator
 │   │
 │   └── tts/                          # ── TRACK 2: test-time-scaling library ──
@@ -112,13 +105,12 @@ GICA/
 
 ## 3. Prerequisites & Installation
 
-The two tracks have **disjoint** dependency sets. Track 1 is CPU-only and tiny; Track 2 needs GPUs
-and a heavyweight LLM-serving stack. Install whichever you need (or both).
+The two tracks have **disjoint** dependency sets. Track 1 is CPU-only and tiny, while Track 2 needs GPUs and a heavyweight LLM-serving stack. Install whichever you need (or both).
 
 ### 3.0 Common: clone and create the package environment
 
 ```bash
-git clone <your-repo-url> GICA
+git clone <the-repo-url> GICA
 cd GICA
 
 # A clean Python 3.10 environment (conda recommended; venv also works)
