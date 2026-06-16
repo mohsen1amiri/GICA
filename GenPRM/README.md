@@ -2,82 +2,13 @@
 
 # GenPRM
 
-[![Paper](https://img.shields.io/badge/paper-A42C25?style=for-the-badge&logo=arxiv&logoColor=white)](https://arxiv.org/abs/2504.00891) [![Website](https://img.shields.io/badge/Project_Page-000acc?style=for-the-badge&logo=githubpages&logoColor=000&logoColor=white)](https://ryanliu112.github.io/GenPRM) [![Github](https://img.shields.io/badge/GitHub-000000?style=for-the-badge&logo=github&logoColor=000&logoColor=white)](https://github.com/RyanLiu112/GenPRM) [![HuggingFace](https://img.shields.io/badge/HugggingFace-fcd022?style=for-the-badge&logo=huggingface&logoColor=000)](https://huggingface.co/collections/GenPRM/genprm-67ee4936234ba5dd16bb9943) [![Awesome](https://img.shields.io/badge/Awesome_PRMs-000000?style=for-the-badge&logo=github&logoColor=000&logoColor=white)](https://github.com/RyanLiu112/Awesome-Process-Reward-Models)
-
-</div>
-
-<div align="center">
-  <p>
-    <a href="#-news" style="text-decoration: none; font-weight: bold;">🔔 News</a> •
-    <a href="#-method" style="text-decoration: none; font-weight: bold;">👀 Method</a> •
-    <a href="#-results" style="text-decoration: none; font-weight: bold;">🏆 Results</a>
-  </p>
-  <p>
-    <a href="#-getting-started" style="text-decoration: none; font-weight: bold;">🚀 Getting Started</a> •
-    <a href="#-citation" style="text-decoration: none; font-weight: bold;">📝 Citation</a> •
-    <a href="#-acknowledgement" style="text-decoration: none; font-weight: bold;">💡 Acknowledgement</a>
-  </p>
-</div>
-
+Code derived from https://github.com/RyanLiu112/GenPRM
 ## 🎯 Overview
 
 <img src="./static/images/fig_head.png" alt="" style="width: 100%; max-width: 1000px; margin-top: 20px; margin-bottom: 10px;" id="fig_head">
 
-We propose **GenPRM**, a strong generative process reward model with the following features:
 
-- performing explicit **CoT reasoning** and **code verfication** before providing the process judgment;
-- improving Monte Carlo estimation and hard label with **Relative Progress Estimation (RPE)**;
-- supporting GenPRM **test-time scaling** in a parallel manner with majority voting;
-- supporting policy model test-time scaling with GenPRM as **verifiers** or **critics**.
 
-We will release all code, model, and data, including:
-
-- GenPRM with parameters of 1.5B, 7B, 14B, 32B, and 70B (ongoing);
-- 23K training data from MATH dataset;
-- all details including solution generation, Monte Carlo estimation, RPE, model training and inference (ongoing).
-
-<img src="./static/images/comparison.png" alt="" style="width: 100%; max-width: 1000px; margin-top: 20px; margin-bottom: 10px;" id="comparison">
-
-## 🔔 News
-
-- **[2025-11-08]** 📢 GenPRM is accepted by AAAI 2026!
-- **[2025-04-24]** ✨ The full data synthesis code is available.
-- **[2025-04-14]** 📢 GenPRM is reported by [Synced (机器之心)](https://mp.weixin.qq.com/s/P2OPxTMzB6Zp8Rb3RN86wQ)!
-- **[2025-04-06]** ✨ The evaluation code and [GenPRM-32B](https://huggingface.co/GenPRM/GenPRM-32B) are available.
-- **[2025-04-05]** ✨ The inference code is available.
-- **[2025-04-03]** ✨ Our models ([GenPRM-1.5B](https://huggingface.co/GenPRM/GenPRM-1.5B) & [GenPRM-7B](https://huggingface.co/GenPRM/GenPRM-7B)) and training data are released on [HuggingFace](https://huggingface.co/collections/GenPRM/genprm-67ee4936234ba5dd16bb9943).
-- **[2025-04-01]** 📄 Our paper is released on [arXiv](https://arxiv.org/abs/2504.00891).
-
-## 👀 Method
-
-Our framework:
-
-<img src="./static/images/framework2.png" alt="" style="width: 100%; max-width: 1000px; margin-top: 20px; margin-bottom: 10px;" id="framework2">
-
-## 🏆 Results
-
-### ProcessBench
-
-<img src="./static/images/main_processbench.png" alt="" style="width: 100%; max-width: 1000px; margin-top: 20px; margin-bottom: 10px;" id="main_processbench">
-
-### Best-of-N
-
-<img src="./static/images/main_bon.png" alt="" style="width: 100%; max-width: 1000px; margin-top: 20px; margin-bottom: 10px;" id="main_bon">
-
-### Critique Refinement
-
-<img src="./static/images/critic.png" alt="" style="width: 100%; max-width: 1000px; margin-top: 20px; margin-bottom: 10px;" id="fig_head">
-
-## 🚀 Getting Started
-
-### Installation
-
-Clone the repository:
-
-```bash
-git clone https://github.com/RyanLiu112/GenPRM.git
-cd GenPRM/src
-```
 
 Create a new conda environment and install the dependencies:
 
