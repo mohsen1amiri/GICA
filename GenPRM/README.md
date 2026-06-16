@@ -13,8 +13,8 @@ Code derived from https://github.com/RyanLiu112/GenPRM
 Create a new conda environment and install the dependencies:
 
 ```bash
-conda create -n GenPRM python=3.10
-conda activate GenPRM
+python3 -m venv GenPRM
+source GenPRM/bin/activate
 pip install -r requirements.txt
 ```
 
