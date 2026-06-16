@@ -9,7 +9,7 @@ ground-truth answer.
 
 **Download the JSON data from:**
 
-> https://drive.google.com/drive/folders/19Pu3OguXDXLguMzY78T9q4YzU2JtNuzT?usp=sharing
+> https://osf.io/v7muk/overview?view_only=aa5acf15fbcd4d0db38d3f53f480dc52
 
 and drop the files into **this `data/` folder** (repository root → `data/`).
 
