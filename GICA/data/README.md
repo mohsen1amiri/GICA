@@ -1,0 +1,48 @@
+# Datasets
+
+The test-time-scaling experiments (Track 2) consume **pre-generated candidate reasoning
+paths**, not raw benchmarks. Each file contains, per question: the prompt, the list of
+`M = 100` candidate chain-of-thought solutions produced by the generator LLM, and the
+ground-truth answer.
+
+## Download
+
+**Download the JSON data from:**
+
+> https://drive.google.com/drive/folders/19Pu3OguXDXLguMzY78T9q4YzU2JtNuzT?usp=sharing
+
+and drop the files into **this `data/` folder** (repository root → `data/`).
+
+> If you are working from the *original* upstream layout instead of this unified repository,
+> the same files go into `GenPRM/src/data/`.
+
+## Expected files
+
+The driver scripts reference files named `<Generator>-<Benchmark>-RL-7B.json`, e.g.:
+
+```
+data/
+├── Deepseek-Math-RL-7B.json          # MATH-500,     generator = DeepSeekMath-RL-7B
+├── Deepseek-MathOdyssey-RL-7B.json   # MathOdyssey,  generator = DeepSeekMath-RL-7B
+├── Deepseek-AIME-RL-7B.json          # AIME,         generator = DeepSeekMath-RL-7B
+├── InternLM2-Math-RL-7B.json         # MATH-500,     generator = InternLM2-Math-Plus-7B
+├── InternLM2-MathOdyssey-RL-7B.json  # MathOdyssey,  generator = InternLM2-Math-Plus-7B
+└── InternLM2-AIME-RL-7B.json         # AIME,         generator = InternLM2-Math-Plus-7B
+```
+
+(Exact filenames may vary slightly with the Drive contents; pass the correct path with
+`--file_path` to the CLI drivers.)
+
+## Schema
+
+```jsonc
+{
+  "prompt":     ["<question 1>", "<question 2>", ...],
+  "completion": [ ["<path 1>", "<path 2>", ..., "<path M>"],   // M candidate CoTs for Q1
+                  ["<path 1>", ...],                            // for Q2
+                  ... ],
+  "answer":     ["<ground truth 1>", "<ground truth 2>", ...]
+}
+```
+
+`prompt`, `completion`, and `answer` are parallel lists indexed by question.

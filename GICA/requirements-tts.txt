@@ -1,0 +1,12 @@
+# Track 2 (test-time-scaling pipeline) -- requires CUDA GPUs.
+# Pinned to the versions used in the paper.
+vllm==0.7.1
+transformers==4.48.2
+logits-processor-zoo==0.2.0
+sentence-transformers
+scikit-learn
+datasets==3.1.0
+accelerate==1.2.0
+numpy
+scipy
+pandas

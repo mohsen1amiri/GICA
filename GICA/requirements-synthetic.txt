@@ -1,0 +1,4 @@
+# Track 1 (synthetic experiments) -- CPU only, lightweight.
+numpy
+scipy            # only needed by the m-LinGapE "optimized" selection rule (linprog)
+matplotlib       # figure generation in gica.synthetic.benchmark
