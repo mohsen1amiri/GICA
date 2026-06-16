@@ -191,7 +191,7 @@ download automatically on first use via Hugging Face):
 The TTS experiments consume **pre-generated candidate reasoning paths** (not raw benchmarks).
 
 > **Please download the JSON data from**
-> **https://drive.google.com/drive/folders/19Pu3OguXDXLguMzY78T9q4YzU2JtNuzT?usp=sharing**
+> **https://drive.google.com/drive/folders/1Fc7lBy2hOhnUvcn_pCj2rgkavpBIZS9t?usp=sharing**
 > **and drop the files into the `data/` folder.**
 
 See [`data/README.md`](data/README.md) for the expected filenames and the JSON schema. In short,
