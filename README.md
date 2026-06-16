@@ -207,114 +207,123 @@ and the ground-truth `answer`.
 Both tracks implement the same fixed-confidence selection loop and differ only in
 **where the verifier signal comes from**. The end-to-end TTS workflow (Figure 1 of
 the paper) has two stages: a **Selection Stage**, where the GICA bandit evaluates the
-`M` candidate CoT paths via step-level PRM queries to produce a top-`K` shortlist
+`M` candidate paths via cheap step-level PRM queries to certify a top-`K` shortlist
 *without* full path evaluations, and an **Aggregation Stage**, which collapses that
-shortlist into the final answer by majority vote.
+shortlist into a final answer by majority vote.
 
 ```mermaid
 flowchart LR
-    Q["❓ <b>Question</b> (I_test)<br/><i>'A bookstore sells notebooks for 4€<br/>and pens for 2€. Alice buys 15 items<br/>and spends 46€. How many notebooks?'</i>"]
-    LLM["🤖 <b>Base LLM</b><br/>CoT Generator"]
-    PATHS["📊 <b>Candidate CoT Reasoning Paths Π</b><br/>──────────────<br/>π₁ : Standard algebraic approach ✓<br/>π₂ : Elimination method ✗<br/>⋮<br/>π₃ … π₁₀₀ : further candidate paths"]
+    Q(["❓ <b>Question</b><br/><i>I_test</i>"])
+    LLM["🤖 <b>Base LLM</b><br/><i>CoT generator</i>"]
+    PATHS["📊 <b>Candidate Paths</b> Π<br/><i>M = 100 stepwise solutions</i>"]
 
-    subgraph SEL ["⚙️ Selection Stage"]
-        direction TB
-        GICA["🎰 <b>GICA Bandit</b>"]
-        PRM["📋 <b>Reasoning-based<br/>PRM</b>"]
-        GICA -- "step" --> PRM
-        PRM -- "reward" --> GICA
+    subgraph SEL ["⚙️ &nbsp;SELECTION STAGE"]
+        direction LR
+        GICA(["🎰 <b>GICA</b><br/><b>Bandit</b>"])
+        PRM(["📋 <b>Reasoning</b><br/><b>PRM</b>"])
+        GICA -- "① step s_t" --> PRM
+        PRM -- "② reward y_t" --> GICA
     end
 
     TOPK["🏆 <b>Top-K Paths</b>"]
+    AGG["▦ <b>Aggregation</b><br/><i>majority vote</i>"]
+    ANS(["🏁 <b>Final</b><br/><b>Answer</b>"])
 
-    subgraph AGG ["▦ Aggregation Stage"]
-        MV["<b>Majority vote</b> over<br/>top-K aggregated<br/>verifier scores"]
-    end
+    Q --> LLM --> PATHS ==> GICA
+    GICA ==> TOPK ==> AGG ==> ANS
+    Q -. "conditioning" .-> PRM
 
-    PRED["🏁 <b>Final Answer</b>"]
+    classDef io      fill:#EFF6FF,stroke:#2563EB,stroke-width:2px,color:#1E3A5F;
+    classDef llm     fill:#F1F5F9,stroke:#64748B,stroke-width:1.5px,color:#334155;
+    classDef bandit  fill:#FFEDD5,stroke:#EA580C,stroke-width:2px,color:#7C2D12;
+    classDef prm     fill:#F3E8FF,stroke:#7C3AED,stroke-width:2px,color:#4C1D95;
+    classDef topk    fill:#DCFCE7,stroke:#059669,stroke-width:2px,color:#064E3B;
+    classDef agg     fill:#CCFBF1,stroke:#0D9488,stroke-width:1.5px,color:#134E4A;
 
-    Q --> LLM --> PATHS --> GICA
-    GICA --> TOPK
-    TOPK -.-> MV --> PRED
-    Q -. "Conditioning / Verification" .-> PRM
-
-    classDef inputCls   fill:#EFF6FF,stroke:#2563EB,stroke-width:1.5px,color:#334155;
-    classDef llmCls     fill:#E2E8F0,stroke:#64748B,stroke-width:1.5px,color:#334155;
-    classDef pathCls    fill:#FFFFFF,stroke:#CBD5E1,stroke-width:1.5px,color:#334155;
-    classDef banditCls  fill:#FFEDD5,stroke:#EA580C,stroke-width:1.5px,color:#334155;
-    classDef prmCls     fill:#F3E8FF,stroke:#7C3AED,stroke-width:1.5px,color:#334155;
-    classDef topkCls    fill:#DCFCE7,stroke:#059669,stroke-width:1.5px,color:#334155;
-    classDef aggCls     fill:#CCFBF1,stroke:#0D9488,stroke-width:1.5px,color:#334155;
-    classDef finalCls   fill:#EFF6FF,stroke:#2563EB,stroke-width:2px,color:#334155;
-
-    class Q inputCls;
-    class LLM llmCls;
-    class PATHS pathCls;
-    class GICA banditCls;
-    class PRM prmCls;
-    class TOPK topkCls;
-    class MV aggCls;
-    class PRED finalCls;
+    class Q,ANS io;
+    class LLM llm;
+    class PATHS,TOPK topk;
+    class GICA bandit;
+    class PRM prm;
+    class AGG agg;
 ```
 
+> **Inside the Selection Stage**, GICA never scores whole paths. Each round it queries
+> a *single* step, gets one reward, and updates a shared model — so a verifier call that
+> looks at one step sharpens the estimate of **every** path at once.
+
 The selection loop is where the sample efficiency comes from. Figure 2 of the paper
-details **one round** of Algorithm 1: under the shared estimate `θ̂_t`, the **Selection
-Rule** ranks the candidate paths, fixes the boundary pair `(π⋆_t, π†_t)` separating the
-top-`K` shortlist from its hardest challenger, and queries the single step `s_t` that
-most contracts pairwise uncertainty along that boundary; the **PRM** returns reward
-`y_t`; the **Update Rule** refreshes `(V_t, θ̂_t)`; and the **Stopping Rule** repeats
-until `Γ_t ≥ −ε`.
+zooms into **one round** of Algorithm 1. Under the shared estimate `θ̂_t`, the
+**Selection Rule** ranks the paths and locks onto the single hardest decision — the
+**boundary pair** `(π⋆, π†)` that separates the current top-`K` shortlist from its
+toughest challenger. It then queries the one step `s_t` that most reduces uncertainty
+on that boundary. The **PRM** returns reward `y_t`; the **Update Rule** refreshes
+`(V_t, θ̂_t)`; and the **Stopping Rule** loops until the shortlist is certified
+(`Γ_t ≥ −ε`).
 
 ```mermaid
 flowchart LR
-    SEL["🟧 <b>Selection Rule</b><br/>Algorithm 1: Steps (3)–(7)<br/>rank paths, fix boundary pair (π⋆_t, π†_t),<br/>select most informative step s_t"]
+    SEL["🟧 <b>① Selection Rule</b><br/>──────────<br/>rank paths by μ̂(π) = g(π)·θ̂<br/>find boundary pair (π⋆, π†)<br/>pick most informative step s_t"]
+    PRM["🟪 <b>② Reasoning PRM</b><br/>──────────<br/>score step s_t<br/>in its within-path prefix"]
+    UPD["🟩 <b>③ Update Rule</b><br/>──────────<br/>Sherman–Morrison: V_t⁻¹<br/>recursive least squares: θ̂_t"]
+    CHK{"🟦 <b>④ Stopping Rule</b><br/>──────────<br/>is Γ_t ≥ −ε ?"}
+    OUT(["✅ <b>Certified</b><br/><b>top-K shortlist</b>"])
 
-    subgraph GRID ["Candidate paths under shared estimate θ̂_t"]
-        direction TB
-        TOP["🟦 top-K shortlist&nbsp;&nbsp;|&nbsp;&nbsp;π₁ π₂ π₃ <b>π₄ = π⋆_t</b>"]
-        BND["🟪 <b>boundary pair (π⋆_t, π†_t)</b>&nbsp;&nbsp;|&nbsp;&nbsp;π₄ ── π₅"]
-        CHAL["⬜ challengers&nbsp;&nbsp;|&nbsp;&nbsp;<b>π₅ = π†_t</b> π₆ π₇ … π₁₀₀"]
-        TOP --- BND --- CHAL
-    end
-
-    PRM["📋 <b>Reasoning-based PRM</b>"]
-    UPD["🟩 <b>Update Rule</b><br/>Algorithm 1: Step (8), Eq. (1)<br/>V_t ← V_t₋₁ + x_{s_t} x_{s_t}ᵀ,&nbsp; θ̂_t ← Vₜ⁻¹ Σ yᵢ x_{sᵢ}"]
-    CHK{"🟦 <b>Check Stopping Rule</b><br/>Algorithm 1: Steps (9) & (2)<br/>is Γ_t ≥ −ε ?"}
-
-    SEL -- "selected step" --> BND
-    BND -- "query PRM" --> PRM
+    SEL -- "step s_t" --> PRM
     PRM -- "reward y_t" --> UPD
     UPD --> CHK
-    CHK -. "if Γ_t < −ε : next round" .-> SEL
-    CHK == "if Γ_t ≥ −ε" ==> OUT["✅ Output certified top-K shortlist P̂_K(τ)"]
+    CHK == "yes" ==> OUT
+    CHK -. "no — next round" .-> SEL
 
-    classDef selCls   fill:#FFEDD5,stroke:#EA580C,stroke-width:1.5px,color:#334155;
-    classDef prmCls   fill:#F3E8FF,stroke:#7C3AED,stroke-width:1.5px,color:#334155;
-    classDef updCls   fill:#DCFCE7,stroke:#059669,stroke-width:1.5px,color:#334155;
-    classDef chkCls   fill:#EFF6FF,stroke:#2563EB,stroke-width:1.5px,color:#334155;
-    classDef topCls   fill:#EFF6FF,stroke:#2563EB,stroke-width:1px,color:#334155;
-    classDef bndCls   fill:#F3E8FF,stroke:#7C3AED,stroke-width:1.5px,color:#334155;
-    classDef chalCls  fill:#F1F5F9,stroke:#CBD5E1,stroke-width:1px,color:#334155;
-    classDef outCls   fill:#DCFCE7,stroke:#059669,stroke-width:2px,color:#334155;
+    classDef sel  fill:#FFEDD5,stroke:#EA580C,stroke-width:2px,color:#7C2D12;
+    classDef prm  fill:#F3E8FF,stroke:#7C3AED,stroke-width:2px,color:#4C1D95;
+    classDef upd  fill:#DCFCE7,stroke:#059669,stroke-width:2px,color:#064E3B;
+    classDef chk  fill:#EFF6FF,stroke:#2563EB,stroke-width:2px,color:#1E3A5F;
+    classDef out  fill:#DCFCE7,stroke:#059669,stroke-width:2.5px,color:#064E3B;
 
-    class SEL selCls;
-    class PRM prmCls;
-    class UPD updCls;
-    class CHK chkCls;
-    class TOP topCls;
-    class BND bndCls;
-    class CHAL chalCls;
-    class OUT outCls;
+    class SEL sel;
+    class PRM prm;
+    class UPD upd;
+    class CHK chk;
+    class OUT out;
+```
+
+The diagram below shows **what the Selection Rule "sees"**: paths sorted by estimated
+utility, a threshold at rank `K`, and the boundary pair straddling it — the only place
+GICA spends a query.
+
+```mermaid
+flowchart TB
+    subgraph RANK ["Paths ranked by estimated utility μ̂(π)  ▼"]
+        direction TB
+        T["🟦 <b>TOP-K SHORTLIST</b><br/>π₁ &nbsp; π₂ &nbsp; π₃ &nbsp; <b>π⋆</b> ◄ weakest kept path"]
+        line["— — — — —  rank-K threshold  — — — — —"]
+        C["⬜ <b>CHALLENGERS</b><br/><b>π†</b> ◄ strongest dropped path &nbsp; π₆ &nbsp; … &nbsp; π₁₀₀"]
+        T --- line --- C
+    end
+    note["🎯 <b>Boundary pair (π⋆, π†)</b> = the most ambiguous comparison.<br/>GICA queries the single step that best separates them."]
+    RANK -.-> note
+
+    classDef top   fill:#EFF6FF,stroke:#2563EB,stroke-width:2px,color:#1E3A5F;
+    classDef thr   fill:#FFFFFF,stroke:#94A3B8,stroke-width:1px,color:#64748B,stroke-dasharray:5 4;
+    classDef chal  fill:#F1F5F9,stroke:#CBD5E1,stroke-width:1.5px,color:#475569;
+    classDef noteC fill:#FEF3C7,stroke:#D97706,stroke-width:1.5px,color:#78350F;
+
+    class T top;
+    class line thr;
+    class C chal;
+    class note noteC;
 ```
 
 The two tracks differ only in the PRM box: **Track 1 (synthetic)** replaces it with an
-oracle returning `x_s·θ⋆ + noise`, while **Track 2 (TTS)** uses **ThinkPRM**, which
-reads the question plus the step's within-path prefix and returns a correctness score
-in `[0, 1]`. Because the linear parameter `θ` is **shared across all paths**, a single
-step observation tightens the utility estimate of *every* path — the compositional
+oracle returning `x_s·θ⋆ + noise`; **Track 2 (TTS)** uses **ThinkPRM**, which reads the
+question plus the step's within-path prefix and returns a correctness score in `[0, 1]`.
+Because the linear parameter `θ` is **shared across all paths**, a single step
+observation tightens the utility estimate of *every* path — the compositional
 information sharing that gives GICA its `O(1)`-per-round query cost (versus `O(T_p·M)`
-for path-arm baselines) and a sample-complexity bound with **no dependence on the
-candidate-set size `M`** (Theorem 3.8).
+for path-arm baselines) and a sample-complexity bound with **no dependence on `M`**
+(Theorem 3.8).
+
 
 ### 4.2 Track 1 — Synthetic (`src/gica/synthetic/`)
 
