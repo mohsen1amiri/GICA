@@ -8,7 +8,7 @@
 ## 1. Project Title & Abstract
 
 **Test-time scaling (TTS)** improves the reasoning of large language models (LLMs) by sampling
-many candidate chain-of-thought solutions and using a **verifier** to select among them.
+many candidate chain-of-thought (CoT) solutions and using a **verifier** to select among them.
 **Process reward models (PRMs)** that score *every intermediate step* — especially recent
 *reasoning-based* PRMs that generate a long verification chain-of-thought before emitting a score —
 are the most accurate verifiers, but they are prohibitively expensive: their cost grows with both
