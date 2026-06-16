@@ -107,19 +107,54 @@ GICA/
 
 The two tracks have **disjoint** dependency sets. Track 1 is CPU-only and tiny, while Track 2 needs GPUs and a heavyweight LLM-serving stack. Install whichever you need (or both).
 
-### 3.0 Common: clone and create the package environment
+### 3.0 Common: clone the repository and create the package environment
+
+These steps are shared by **both** tracks. They clone the repository, create an isolated
+Python 3.10 environment, and install the `gica` package itself so that `import gica` works
+from anywhere. Pick **one** of the two environment options below (conda *or* venv) — you do
+not need both.
+
+#### Step 1 — Clone the repository
 
 ```bash
 git clone <the-repo-url> GICA
 cd GICA
+```
 
-# A clean Python 3.10 environment (conda recommended; venv also works)
+#### Step 2 — Create and activate a Python 3.10 environment
+
+**Option A — conda (recommended):**
+
+```bash
 conda create -n gica python=3.10 -y
 conda activate gica
+```
 
-# Install the `gica` package itself (editable, so `import gica` works from anywhere)
+**Option B — venv (standard library; requires Python 3.10 already installed):**
+
+```bash
+# Linux / macOS
+python3.10 -m venv .venv
+source .venv/bin/activate
+
+# Windows (PowerShell)
+py -3.10 -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+> To leave the environment later, run `conda deactivate` (conda) or `deactivate` (venv).
+
+#### Step 3 — Install the `gica` package
+
+With the environment active, install the package in editable mode so that local code
+changes take effect immediately and `import gica` resolves from any directory:
+
+```bash
 pip install -e .
 ```
+
+You're now ready to install the dependencies for whichever track(s) you need — see §3.1
+(Synthetic, CPU) and §3.2 (Test-Time Scaling, GPU) below.
 
 ### 3.1 Track 1 — Synthetic (CPU)
 
