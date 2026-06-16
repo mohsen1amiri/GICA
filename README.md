@@ -288,32 +288,6 @@ flowchart LR
     class OUT out;
 ```
 
-The diagram below shows **what the Selection Rule "sees"**: paths sorted by estimated
-utility, a threshold at rank `K`, and the boundary pair straddling it — the only place
-GICA spends a query.
-
-```mermaid
-flowchart TB
-    subgraph RANK ["Paths ranked by estimated utility μ̂(π)  ▼"]
-        direction TB
-        T["🟦 <b>TOP-K SHORTLIST</b><br/>π₁ &nbsp; π₂ &nbsp; π₃ &nbsp; <b>π⋆</b> ◄ weakest kept path"]
-        line["— — — — —  rank-K threshold  — — — — —"]
-        C["⬜ <b>CHALLENGERS</b><br/><b>π†</b> ◄ strongest dropped path &nbsp; π₆ &nbsp; … &nbsp; π₁₀₀"]
-        T --- line --- C
-    end
-    note["🎯 <b>Boundary pair (π⋆, π†)</b> = the most ambiguous comparison.<br/>GICA queries the single step that best separates them."]
-    RANK -.-> note
-
-    classDef top   fill:#EFF6FF,stroke:#2563EB,stroke-width:2px,color:#1E3A5F;
-    classDef thr   fill:#FFFFFF,stroke:#94A3B8,stroke-width:1px,color:#64748B,stroke-dasharray:5 4;
-    classDef chal  fill:#F1F5F9,stroke:#CBD5E1,stroke-width:1.5px,color:#475569;
-    classDef noteC fill:#FEF3C7,stroke:#D97706,stroke-width:1.5px,color:#78350F;
-
-    class T top;
-    class line thr;
-    class C chal;
-    class note noteC;
-```
 
 The two tracks differ only in the PRM box: **Track 1 (synthetic)** replaces it with an
 oracle returning `x_s·θ⋆ + noise`; **Track 2 (TTS)** uses **ThinkPRM**, which reads the
