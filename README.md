@@ -205,65 +205,104 @@ and the ground-truth `answer`.
 ### 4.1 The big idea (how the data flows)
 
 Both tracks implement the same fixed-confidence selection loop and differ only in
-**where the verifier signal comes from**. At a high level, a generator LLM produces
-`M` candidate reasoning paths; the **GICA bandit** then certifies a top-`K` shortlist
-using step-level PRM queries (the *Selection Stage*), and the shortlist is collapsed
-into a final answer by majority vote (the *Aggregation Stage*). This mirrors Figure 1
-of the paper:
+**where the verifier signal comes from**. A generator LLM produces $M$ candidate
+reasoning paths; the **GICA bandit** then certifies a top-$K$ shortlist using
+step-level PRM queries (the *Selection Stage*), and the shortlist is collapsed into a
+final answer by majority vote (the *Aggregation Stage*). This is the end-to-end
+workflow of Figure 1 in the paper:
 
 ```mermaid
 flowchart LR
-    Q["Question I_test"] --> LLM["Base LLM<br/>(CoT generator)"]
-    LLM --> PATHS["Candidate CoT paths Π<br/>(M = 100), each a stepwise solution"]
+    Q["<b>Question</b> I&#8348;&#8345;&#8347;&#8348;"]
+    LLM["<b>Base LLM</b><br/>CoT Generator"]
+    PATHS["<b>Candidate CoT Reasoning Paths &#928;</b><br/>&#960;&#8321;, &#960;&#8322;, &#8230;, &#960;&#8321;&#8320;&#8320;<br/>(M = 100 stepwise solutions)"]
 
-    subgraph SEL ["Selection Stage"]
+    subgraph SEL ["&#9881;&#65039; Selection Stage"]
         direction TB
-        GICA["GICA bandit"] -- "step s_t" --> PRM["Reasoning-based PRM<br/>(ThinkPRM)"]
-        PRM -- "reward y_t" --> GICA
+        GICA["<b>GICA Bandit</b>"]
+        PRM["<b>Reasoning-based PRM</b>"]
+        GICA -- "step" --> PRM
+        PRM -- "reward" --> GICA
     end
 
-    PATHS --> GICA
-    GICA --> TOPK["Top-K paths"]
+    TOPK["<b>Top-K Paths</b>"]
 
-    subgraph AGG ["Aggregation Stage"]
-        MV["Majority vote over<br/>top-K aggregated scores"]
+    subgraph AGG ["&#128464;&#65039; Aggregation Stage"]
+        MV["Majority vote over<br/>top-K aggregated<br/>verifier scores"]
     end
 
-    TOPK -.-> MV
-    MV --> ANS["Final answer"]
+    FINAL["<b>Final Answer</b>"]
+
+    Q --> LLM --> PATHS --> GICA
+    GICA --> TOPK
+    TOPK -.-> MV --> FINAL
+    Q -. "Conditioning / Verification" .-> PRM
+
+    classDef input fill:#EFF6FF,stroke:#2563EB,color:#334155;
+    classDef llm fill:#E2E8F0,stroke:#334155,color:#334155;
+    classDef bandit fill:#FFEDD5,stroke:#EA580C,color:#334155;
+    classDef prm fill:#F3E8FF,stroke:#7C3AED,color:#334155;
+    classDef topk fill:#DCFCE7,stroke:#059669,color:#334155;
+    classDef agg fill:#CCFBF1,stroke:#0D9488,color:#334155;
+    classDef final fill:#DBEAFE,stroke:#2563EB,color:#334155;
+    class Q,PATHS input;
+    class LLM llm;
+    class GICA bandit;
+    class PRM prm;
+    class TOPK topk;
+    class MV agg;
+    class FINAL final;
 ```
 
-The selection loop is where the sample-efficiency comes from. Each round, GICA
-re-estimates every path's utility under the **shared** linear parameter `θ̂`, isolates
-the single most ambiguous top-vs-challenger boundary pair, queries the one step that
-most reduces uncertainty along that boundary, and updates `θ̂`. It halts as soon as the
-shortlist is statistically certified to be `ε`-optimal. One round of Algorithm 1 looks
-like this (cf. Figure 2 of the paper):
+The selection loop is where the sample efficiency comes from. Each round, GICA
+re-estimates every path's utility under the **shared** linear parameter
+$\widehat{\theta}_t$, isolates the single most ambiguous top-vs-challenger boundary
+pair, queries the one step that most reduces uncertainty along that boundary, updates
+$\widehat{\theta}_t$, and checks whether the shortlist is certified. This is the
+single-round view of Figure 2 (the inside of the Selection Stage), where
+$\pi^{\star}_t$ is the most ambiguous shortlisted path and $\pi^{\dagger}_t$ its
+hardest challenger:
 
 ```mermaid
-flowchart TD
-    A["1–2. Estimate path utilities<br/>μ̂(π) = g(π)·θ̂, form empirical top-K shortlist P̂_K(t)"]
-    A --> B{"3. Stopping rule<br/>Γ_t ≥ −ε ?"}
-    B -- "yes" --> STOP["Output certified top-K shortlist"]
-    B -- "no" --> C["4. Boundary Selection Rule:<br/>pick most ambiguous pair (π⋆, π†)<br/>via gap-index G_t = Δ̂² / σ²"]
-    C --> D["5. Step Query Rule:<br/>query single most informative step on π⋆ ∪ π†<br/>maximizing C_t(s) = ⟨g(π⋆,π†), x_s⟩²_{V⁻¹} / (1 + ‖x_s‖²_{V⁻¹})"]
-    D --> E["Verifier returns reward y_t"]
-    E --> F["6. Update Rule:<br/>Sherman–Morrison update of V⁻¹ and RLS update of θ̂"]
-    F --> B
+flowchart TB
+    SEL["<b>Selection Rule</b> &#8212; Algorithm 1, lines 4&#8211;7<br/>1. Estimate &#956;&#770;(&#960;) = g(&#960;)&#183;&#952;&#770;&#8348; for all paths<br/>2. Form empirical top-K shortlist P&#770;&#8342;(t)<br/>3. Boundary pair (&#960;&#8407;&#8348;, &#960;&#8224;&#8348;) = arg min gap-index G&#8348;&#8331;&#8321;<br/>4. Select step s&#8348; maximizing one-step variance contraction"]
+
+    PRM["<b>Reasoning-based PRM</b><br/>verifies s&#8348; with its within-path prefix"]
+
+    UPD["<b>Update Rule</b> &#8212; Algorithm 1, line 8<br/>Sherman&#8211;Morrison update V&#8348;&#8315;&#185; and RLS update &#952;&#770;&#8348;"]
+
+    CHK{"<b>Stopping Rule</b> &#8212; Algorithm 1, lines 9 &amp; 2<br/>is &#915;&#8348; &#8805; &#8722;&#949; ?"}
+
+    DONE["<b>Output</b> P&#770;&#8342;(&#964;&#948;)<br/>certified &#949;-optimal top-K"]
+
+    SEL -- "selected step s&#8348;" --> PRM
+    PRM -- "reward y&#8348;" --> UPD
+    UPD --> CHK
+    CHK -- "no: &#915;&#8348; &lt; &#8722;&#949; &#8594; next round" --> SEL
+    CHK -- "yes: &#915;&#8348; &#8805; &#8722;&#949;" --> DONE
+
+    classDef sel fill:#FFEDD5,stroke:#EA580C,color:#334155;
+    classDef prm fill:#F3E8FF,stroke:#7C3AED,color:#334155;
+    classDef upd fill:#DCFCE7,stroke:#059669,color:#334155;
+    classDef chk fill:#EFF6FF,stroke:#2563EB,color:#334155;
+    classDef done fill:#DBEAFE,stroke:#2563EB,color:#334155;
+    class SEL sel;
+    class PRM prm;
+    class UPD upd;
+    class CHK chk;
+    class DONE done;
 ```
 
-The two tracks differ only in the verifier box:
+The two tracks differ only in the verifier box. **Track 1 (synthetic)** replaces the
+PRM with an oracle returning $y_t = x_{s_t}^{\top}\theta^{\star} + \eta_t$.
+**Track 2 (TTS)** replaces it with **ThinkPRM**, which reads the question plus the
+step's within-path prefix and returns a correctness score in $[0,1]$.
 
-- **Track 1 (synthetic)** replaces the verifier with an oracle returning
-  `x_s·θ⋆ + noise`.
-- **Track 2 (TTS)** replaces it with **ThinkPRM**, which reads the question plus the
-  step's within-path prefix and returns a correctness score in `[0, 1]`.
-
-Because the linear parameter `θ` is **shared across all paths**, a single step
-observation tightens the utility estimate of *every* path. This is the compositional
-information sharing that gives GICA its `O(1)`-per-round query cost (versus `O(T_p·M)`
-for path-arm baselines) and a sample-complexity bound with **no dependence on the
-candidate-set size `M`** (Theorem 3.8).
+Because the linear parameter $\theta^{\star}$ is **shared across all paths**, a single
+step observation tightens the utility estimate of *every* path. This is the
+compositional information sharing that gives GICA its $O(1)$-per-round query cost
+(versus $O(T_p \cdot M)$ for path-arm baselines) and a sample-complexity bound with
+**no dependence on the candidate-set size $M$** (Theorem 3.8).
 
 ### 4.2 Track 1 — Synthetic (`src/gica/synthetic/`)
 
