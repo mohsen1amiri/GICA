@@ -204,27 +204,66 @@ and the ground-truth `answer`.
 
 ### 4.1 The big idea (how the data flows)
 
-Both tracks implement the same loop; they differ only in **where the verifier signal comes from**.
+Both tracks implement the same fixed-confidence selection loop and differ only in
+**where the verifier signal comes from**. At a high level, a generator LLM produces
+`M` candidate reasoning paths; the **GICA bandit** then certifies a top-`K` shortlist
+using step-level PRM queries (the *Selection Stage*), and the shortlist is collapsed
+into a final answer by majority vote (the *Aggregation Stage*). This mirrors Figure 1
+of the paper:
 
+```mermaid
+flowchart LR
+    Q["Question I_test"] --> LLM["Base LLM<br/>(CoT generator)"]
+    LLM --> PATHS["Candidate CoT paths Π<br/>(M = 100), each a stepwise solution"]
+
+    subgraph SEL ["Selection Stage"]
+        direction TB
+        GICA["GICA bandit"] -- "step s_t" --> PRM["Reasoning-based PRM<br/>(ThinkPRM)"]
+        PRM -- "reward y_t" --> GICA
+    end
+
+    PATHS --> GICA
+    GICA --> TOPK["Top-K paths"]
+
+    subgraph AGG ["Aggregation Stage"]
+        MV["Majority vote over<br/>top-K aggregated scores"]
+    end
+
+    TOPK -.-> MV
+    MV --> ANS["Final answer"]
 ```
-                 ┌─────────────────── one round of GICA ───────────────────┐
-   paths Π  ─▶   │ 1. estimate path utilities μ̂(π) = g(π)·θ̂                │
-                 │ 2. form empirical top-K shortlist                        │
-                 │ 3. STOP if Γ_t ≥ −ε  (shortlist is certified)            │
-                 │ 4. else pick the most ambiguous boundary pair (π⋆, π†)   │
-                 │ 5. query the single most informative step on π⋆ ∪ π†  ───┼──▶ verifier → y_t
-                 │ 6. Sherman–Morrison update of V⁻¹ and RLS update of θ̂ ◀─┘
-                 └──────────────────────────────────────────────────────────┘
+
+The selection loop is where the sample-efficiency comes from. Each round, GICA
+re-estimates every path's utility under the **shared** linear parameter `θ̂`, isolates
+the single most ambiguous top-vs-challenger boundary pair, queries the one step that
+most reduces uncertainty along that boundary, and updates `θ̂`. It halts as soon as the
+shortlist is statistically certified to be `ε`-optimal. One round of Algorithm 1 looks
+like this (cf. Figure 2 of the paper):
+
+```mermaid
+flowchart TD
+    A["1–2. Estimate path utilities<br/>μ̂(π) = g(π)·θ̂, form empirical top-K shortlist P̂_K(t)"]
+    A --> B{"3. Stopping rule<br/>Γ_t ≥ −ε ?"}
+    B -- "yes" --> STOP["Output certified top-K shortlist"]
+    B -- "no" --> C["4. Boundary Selection Rule:<br/>pick most ambiguous pair (π⋆, π†)<br/>via gap-index G_t = Δ̂² / σ²"]
+    C --> D["5. Step Query Rule:<br/>query single most informative step on π⋆ ∪ π†<br/>maximizing C_t(s) = ⟨g(π⋆,π†), x_s⟩²_{V⁻¹} / (1 + ‖x_s‖²_{V⁻¹})"]
+    D --> E["Verifier returns reward y_t"]
+    E --> F["6. Update Rule:<br/>Sherman–Morrison update of V⁻¹ and RLS update of θ̂"]
+    F --> B
 ```
 
-- **Track 1** replaces the verifier with a synthetic oracle `x_s·θ⋆ + noise`.
-- **Track 2** replaces it with **ThinkPRM**, which reads the question + the step’s within-path
-  prefix and returns a correctness score.
+The two tracks differ only in the verifier box:
 
-Because the linear parameter `θ` is **shared across all paths**, a single step observation tightens
-the utility estimate of *every* path — this is the compositional information sharing that gives
-GICA its `O(1)`-per-round query cost (vs. `O(T_p·M)` for path-arm baselines) and an `M`-independent
-sample-complexity bound.
+- **Track 1 (synthetic)** replaces the verifier with an oracle returning
+  `x_s·θ⋆ + noise`.
+- **Track 2 (TTS)** replaces it with **ThinkPRM**, which reads the question plus the
+  step's within-path prefix and returns a correctness score in `[0, 1]`.
+
+Because the linear parameter `θ` is **shared across all paths**, a single step
+observation tightens the utility estimate of *every* path. This is the compositional
+information sharing that gives GICA its `O(1)`-per-round query cost (versus `O(T_p·M)`
+for path-arm baselines) and a sample-complexity bound with **no dependence on the
+candidate-set size `M`** (Theorem 3.8).
 
 ### 4.2 Track 1 — Synthetic (`src/gica/synthetic/`)
 
