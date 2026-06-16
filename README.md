@@ -117,7 +117,7 @@ Python ≥ 3.10 should work.
 First, clone the repository and enter it:
 
 ```bash
-git clone <the-repo-url> GICA
+git clone https://anonymous.4open.science/r/GICA-1B57 GICA
 cd GICA
 ```
 
