@@ -111,8 +111,7 @@ The two tracks have **disjoint** dependency sets. Track 1 is CPU-only and tiny, 
 
 Every track shares one importable package, `gica`, so start by cloning the
 repository and setting up a Python environment. The project was developed and
-tested with **Python 3.11.5** (via
-`module load Python/3.11.5-GCCcore-13.2.0 IPython/8.17.2-GCCcore-13.2.0`); any
+tested with **Python 3.11.5**, any
 Python ≥ 3.10 should work.
 
 First, clone the repository and enter it:
