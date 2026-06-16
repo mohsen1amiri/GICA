@@ -107,54 +107,59 @@ GICA/
 
 The two tracks have **disjoint** dependency sets. Track 1 is CPU-only and tiny, while Track 2 needs GPUs and a heavyweight LLM-serving stack. Install whichever you need (or both).
 
-### 3.0 Common: clone the repository and create the package environment
+### 3.0 Common: clone and create the package environment
 
-These steps are shared by **both** tracks. They clone the repository, create an isolated
-Python 3.10 environment, and install the `gica` package itself so that `import gica` works
-from anywhere. Pick **one** of the two environment options below (conda *or* venv) — you do
-not need both.
+Every track shares one importable package, `gica`, so start by cloning the
+repository and setting up a Python environment. The project was developed and
+tested with **Python 3.11.5** (via
+`module load Python/3.11.5-GCCcore-13.2.0 IPython/8.17.2-GCCcore-13.2.0`); any
+Python ≥ 3.10 should work.
 
-#### Step 1 — Clone the repository
+First, clone the repository and enter it:
 
 ```bash
 git clone <the-repo-url> GICA
 cd GICA
 ```
 
-#### Step 2 — Create and activate a Python 3.10 environment
+Next, create and activate an isolated environment using **either** conda **or**
+Python's built-in `venv`. You only need one.
 
-**Option A — conda (recommended):**
+**Option A — conda**
 
 ```bash
-conda create -n gica python=3.10 -y
+conda create -n gica python=3.11 -y
 conda activate gica
 ```
 
-**Option B — venv (standard library; requires Python 3.10 already installed):**
+**Option B — venv** (use this on an HPC cluster where Python comes from
+environment modules)
 
 ```bash
-# Linux / macOS
-python3.10 -m venv .venv
-source .venv/bin/activate
+# On an HPC cluster, first load the Python module:
+module load Python/3.11.5-GCCcore-13.2.0 IPython/8.17.2-GCCcore-13.2.0
 
-# Windows (PowerShell)
-py -3.10 -m venv .venv
-.venv\Scripts\Activate.ps1
+# Create the virtual environment (a local `.venv/` folder)
+python -m venv .venv
+
+# Activate it
+source .venv/bin/activate           # Linux/macOS (bash/zsh)
+# .venv\Scripts\activate            # Windows (PowerShell/cmd)
+
+# Make sure pip/setuptools are current
+python -m pip install --upgrade pip setuptools wheel
 ```
 
-> To leave the environment later, run `conda deactivate` (conda) or `deactivate` (venv).
-
-#### Step 3 — Install the `gica` package
-
-With the environment active, install the package in editable mode so that local code
-changes take effect immediately and `import gica` resolves from any directory:
+Finally — with the environment active, whichever you chose — install the `gica`
+package itself in editable mode so that `import gica` works from anywhere:
 
 ```bash
 pip install -e .
 ```
 
-You're now ready to install the dependencies for whichever track(s) you need — see §3.1
-(Synthetic, CPU) and §3.2 (Test-Time Scaling, GPU) below.
+Keep this environment active for the track-specific dependency installs in §3.1
+(synthetic) and §3.2 (test-time scaling) below. To leave the environment later,
+run `conda deactivate` (conda) or `deactivate` (venv).
 
 ### 3.1 Track 1 — Synthetic (CPU)
 
