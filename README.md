@@ -207,7 +207,7 @@ and the ground-truth `answer`.
 Both tracks implement the same fixed-confidence selection loop and differ only in
 **where the verifier signal comes from**. The end-to-end TTS workflow (Figure 1 of
 the paper) has two stages: a **Selection Stage**, where the GICA bandit evaluates the
-`M` candidate paths via cheap step-level PRM queries to certify a top-`K` shortlist
+`M` candidate paths via a step-level reasoning-based PRM queries to certify a top-`K` shortlist
 *without* full path evaluations, and an **Aggregation Stage**, which collapses that
 shortlist into a final answer by majority vote.
 
@@ -248,7 +248,7 @@ flowchart LR
     class AGG agg;
 ```
 
-> **Inside the Selection Stage**, GICA never scores whole paths. Each round it queries
+> **Inside the Selection Stage**, GICA never scores whole paths. Each round, it queries
 > a *single* step, gets one reward, and updates a shared model — so a verifier call that
 > looks at one step sharpens the estimate of **every** path at once.
 
@@ -257,8 +257,8 @@ zooms into **one round** of Algorithm 1. Under the shared estimate `θ̂_t`, the
 **Selection Rule** ranks the paths and locks onto the single hardest decision — the
 **boundary pair** `(π⋆, π†)` that separates the current top-`K` shortlist from its
 toughest challenger. It then queries the one step `s_t` that most reduces uncertainty
-on that boundary. The **PRM** returns reward `y_t`; the **Update Rule** refreshes
-`(V_t, θ̂_t)`; and the **Stopping Rule** loops until the shortlist is certified
+on that boundary. The reasoning-based **PRM** returns reward `y_t`, the **Update Rule** refreshes
+`(V_t, θ̂_t)`, and the **Stopping Rule** loops until the shortlist is certified
 (`Γ_t ≥ −ε`).
 
 ```mermaid
@@ -289,8 +289,8 @@ flowchart LR
 ```
 
 
-The two tracks differ only in the PRM box: **Track 1 (synthetic)** replaces it with an
-oracle returning `x_s·θ⋆ + noise`; **Track 2 (TTS)** uses **ThinkPRM**, which reads the
+The two tracks differ only in the PRM box, i.e., **Track 1 (synthetic)** replaces it with an
+oracle returning `x_s·θ⋆ + noise`, and **Track 2 (TTS)** uses **ThinkPRM**, which reads the
 question plus the step's within-path prefix and returns a correctness score in `[0, 1]`.
 Because the linear parameter `θ` is **shared across all paths**, a single step
 observation tightens the utility estimate of *every* path — the compositional
