@@ -299,41 +299,41 @@ for path-arm baselines) and a sample-complexity bound with **no dependence on `M
 (Theorem 3.8).
 
 
-### 4.2 Track 1 — Synthetic (`src/gica/synthetic/`)
-- **`environment.py`** — `ReasoningEnvironment` builds a compositional linear bandit instance
-  under a *"random instance, control the boundary gap, measure ρ"* design: a unit `true_theta`
-  (`θ⋆`), Gaussian step features, and a full-coverage partition of steps into variable-length
-  paths, where each path's steps are calibrated by a constant offset along `θ⋆` so its utility
-  hits a target. The only structural intervention is this utility calibration — the rank-K /
-  rank-(K+1) **boundary gap `Δ_C`** is *controlled* (set to `theta_norm · grid_gap` via a rigid
-  top-K shift), while everything off the `θ⋆` axis stays random. `get_ground_truth()` returns each
-  path's true utility `μ(π)` (length-normalized average of step utilities); `oracle_callback(step)`
-  returns `x_s·θ⋆ + Gaussian noise` (the step-level verifier signal) and `oracle_callback_path(path)`
-  the corresponding path-level signal. The geometry constant `ρ†` (Assumption 3.2) is **not**
-  controlled — it is an emergent property of the random geometry, so the environment **measures**
-  it: statically over the boundary set `C⋆_K` (`estimate_rho_dagger`, `measure_assumption_3_2`) and
-  along the algorithm's realized trajectory via `reset_realized_rho()` / `update_realized_rho(V⁻¹)` /
-  `get_realized_rho()`. Pass `top_k` to set the binding rank (use the same `K`/`m` the algorithms
+### 4.2 Track 1, Synthetic (`src/gica/synthetic/`)
+- **`environment.py`** builds a compositional linear bandit instance via `ReasoningEnvironment`,
+  following a *"random instance, control the boundary gap, measure ρ"* design. It creates a unit
+  `true_theta` (`θ⋆`), Gaussian step features, and a full-coverage partition of steps into
+  variable-length paths, where each path's steps are calibrated by a constant offset along `θ⋆` so
+  that its utility hits a target. This utility calibration is the only structural intervention. The
+  rank-K versus rank-(K+1) **boundary gap `Δ_C`** is *controlled* (set to `theta_norm · grid_gap` via
+  a rigid top-K shift), while everything off the `θ⋆` axis stays random. `get_ground_truth()` returns
+  each path's true utility `μ(π)` (the length-normalized average of step utilities). `oracle_callback(step)`
+  returns `x_s·θ⋆ + Gaussian noise` (the step-level verifier signal), and `oracle_callback_path(path)`
+  returns the corresponding path-level signal. The geometry constant `ρ†` (Assumption 3.2) is **not**
+  controlled, because it is an emergent property of the random geometry, so the environment **measures**
+  it. It does so statically over the boundary set `C⋆_K` (`estimate_rho_dagger`, `measure_assumption_3_2`)
+  and also along the algorithm's realized trajectory via `reset_realized_rho()`, `update_realized_rho(V⁻¹)`,
+  and `get_realized_rho()`. Pass `top_k` to set the binding rank (use the same `K`/`m` the algorithms
   identify). Run it directly for a one-shot structure-and-ρ report.
-- **`gica.py`** — `class GICA`: the full Algorithm 1. Per round it computes the exact
+- **`gica.py`** implements `class GICA`, the full Algorithm 1. Per round it computes the exact
   determinant-based confidence radius `β_t(δ)` (in log-space for stability), forms the empirical
   top-K shortlist, evaluates the stopping rule `Γ_t ≥ −ε`, selects the most ambiguous boundary pair
   by the gap-index `G_t = Δ̂² / σ²`, queries the step that maximizes the exact one-step variance
   contraction `C_t(s) = ⟨g(π⋆,π†), x_s⟩²_{V⁻¹} / (1 + ‖x_s‖²_{V⁻¹})`, and applies the
-  Sherman–Morrison + recursive-least-squares update. `step_pool_mode="paths"` restricts candidate
-  steps to the boundary pair (the paper setting).
-- **`baseline_case.py`, `baseline_lingifa.py`, `baseline_mlingape.py`** — faithful path-arm
+  Sherman–Morrison plus recursive-least-squares update. Setting `step_pool_mode="paths"` restricts
+  candidate steps to the boundary pair (the paper setting).
+- **`baseline_case.py`, `baseline_lingifa.py`, `baseline_mlingape.py`** are faithful path-arm
   reimplementations of CASE, LinGIFA, and m-LinGapE. All expose the same
   `select_and_update(oracle) → (done, top_ids)` interface and the same logging fields as GICA.
-- **`benchmark.py`** — the experiment harness that produces Figure 3, comparing GICA against CASE,
-  LinGIFA, and m-LinGapE. Highlights: a `FairOracle` that gives each step/path its own deterministic,
-  order-independent noise stream (so every algorithm sees identical feedback); a `step_surrogate`
-  mode that runs the baselines on step-arms and ranks real paths via the learned `θ̂` (how the paper
-  adapts them to the compositional setting); a `PATH_PULL_MODEL` switch (`single` vs. `avg_steps`,
-  the latter physically querying every step so runtime and `1/√T` noise reduction are exact); optional
-  per-trajectory `ρ†` measurement whose timing is excluded from the reported runtime; and a
-  `run_trials` routine that records verifier calls, runtime, gap-index comparisons, accuracy, and
-  `ρ†` across seeds.
+- **`benchmark.py`** is the experiment harness that produces Figure 3, comparing GICA against CASE,
+  LinGIFA, and m-LinGapE. It offers a `FairOracle` that gives each step and path its own
+  deterministic, order-independent noise stream (so every algorithm sees identical feedback). It
+  provides a `step_surrogate` mode that runs the baselines on step-arms and ranks real paths via the
+  learned `θ̂` (how the paper adapts them to the compositional setting). It includes a `PATH_PULL_MODEL`
+  switch (`single` versus `avg_steps`, where the latter physically queries every step so that runtime
+  and `1/√T` noise reduction stay exact). It supports optional per-trajectory `ρ†` measurement whose
+  timing is excluded from the reported runtime. Finally, its `run_trials` routine records verifier
+  calls, runtime, gap-index comparisons, accuracy, and `ρ†` across seeds.
 
 ### 4.3 Track 2 — Test-Time Scaling (`src/gica/tts/` + `scripts/tts/`)
 
