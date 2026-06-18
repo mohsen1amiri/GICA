@@ -356,32 +356,40 @@ Setting `step_pool_mode="paths"` restricts candidate steps to the boundary pair,
 - Optional per trajectory ρ† measurement whose timing is excluded from the reported runtime.
 - A `run_trials` routine that records verifier calls, runtime, gap index comparisons, accuracy, and ρ† across seeds.
 
-### 4.3 Track 2 — Test-Time Scaling (`src/gica/tts/` + `scripts/tts/`)
+### 4.3 Track 2, Test Time Scaling (`src/gica/tts/` + `scripts/tts/`)
 
-Think of Track 2 in six **roles**:
+Track 2 is organized into six **roles**.
 
-1. **Data** (`data/*.json`) — question, `M=100` candidate solutions, ground truth.
-2. **Environment** (`PRMEnvironment`, defined inside each driver) — splits paths into steps
-   (on `".\n"`), embeds them with `all-MiniLM-L6-v2`, and builds a compact **6-dimensional step
-   feature** `[cos(step,question), cos(step,path-centroid), cos(step,global-centroid),
-   position-fraction, bias=1, boundary-placeholder=0]`. Its `oracle_callback(step)` reconstructs
-   the within-path prefix and calls the verifier — **this is what counts as a “verifier call.”**
-3. **Verifier** (`tts/verifier/thinkprm.py`) — wraps ThinkPRM under vLLM. Given the question + a
-   step prefix, it generates a verification chain-of-thought, then converts the “ Yes”/“ No”
-   decision log-probabilities into a confidence in `[0,1]`. The drivers read the `prefix_score`
-   (reward `y_t`) and `step_labels` (binary per-step). The prompt is in `tts/utils/prompt_template.py`.
-4. **Selection** (`tts/selection/*.py`) — the bandit algorithms. **`gica.py`** is the only one with
-   the *dynamic boundary feature*: each round it overwrites the reserved last feature slot with the
-   projection of every step embedding onto the current boundary direction
-   (centroid(π⋆) − centroid(π†)) — the concrete mechanism for exploiting compositional structure.
-   The baselines never touch that slot.
-5. **Drivers** (`scripts/tts/*.py`) — glue everything together, loop over questions, and grade.
-6. **Aggregation/grading** (`compute_em_from_top_m` inside each driver + `tts/answer_extraction.py`)
-   — pick the winning path from the top-K, extract and normalize its answer, compute Exact-Match.
+**1. Data** (`data/*.json`) holds the question, a set of M = 100 candidate solutions, and the ground truth.
 
-Reference points: **`run_best_of_m.py`** scores *every* step of *every* path (the exhaustive upper
-bound), **`run_top1.py`** takes the first sampled path (the floor), and **`run_majority_vote.py`**
-does self-consistency over final answers.
+**2. Environment** (`PRMEnvironment`, defined inside each driver) splits each path into steps on the delimiter `".\n"`, embeds the steps with `all-MiniLM-L6-v2`, and builds a compact **6 dimensional step feature**
+
+    [ cos(step, question),
+      cos(step, path centroid),
+      cos(step, global centroid),
+      position fraction,
+      bias = 1,
+      boundary placeholder = 0 ]
+
+Its `oracle_callback(step)` reconstructs the within path prefix and calls the verifier. This call is what counts as a **verifier call**.
+
+**3. Verifier** (`tts/verifier/thinkprm.py`) wraps ThinkPRM under vLLM. Given the question together with a step prefix, it generates a verification chain of thought, then converts the " Yes" versus " No" decision log probabilities into a confidence in the range
+
+    [ 0, 1 ]
+
+The drivers read the `prefix_score` (the reward y_t) and the `step_labels` (one binary label per step). The prompt lives in `tts/utils/prompt_template.py`.
+
+**4. Selection** (`tts/selection/*.py`) contains the bandit algorithms. Among them, **`gica.py`** is the only one with the *dynamic boundary feature*. Each round it overwrites the reserved last feature slot with the projection of every step embedding onto the current boundary direction
+
+    centroid(π⋆) − centroid(π†)
+
+which is the concrete mechanism for exploiting compositional structure. The baselines never touch that slot.
+
+**5. Drivers** (`scripts/tts/*.py`) glue everything together, loop over questions, and grade.
+
+**6. Aggregation and grading** (`compute_em_from_top_m` inside each driver together with `tts/answer_extraction.py`) picks the winning path from the top K, extracts and normalizes its answer, and computes Exact Match.
+
+**Reference points.** `run_best_of_m.py` scores *every* step of *every* path, giving the exhaustive upper bound. `run_top1.py` takes the first sampled path, giving the floor. `run_majority_vote.py` runs self consistency over the final answers.
 
 ---
 
