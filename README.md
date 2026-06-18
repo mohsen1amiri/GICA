@@ -29,7 +29,7 @@ This repository contains **two self-contained experimental tracks**:
 
 - **Track 1 — Synthetic** (`src/gica/synthetic/`): isolates the bandit algorithm’s sample
   efficiency on compositional top-K instances with a known ground-truth parameter. CPU-only,
-  deterministic, runs in seconds. Reproduces **Figure 3**.
+  deterministic, runs in seconds. Supports the synthetic study of **Figure 3**.
 - **Track 2 — Test-Time Scaling** (`src/gica/tts/` + `scripts/tts/`): the end-to-end TTS pipeline
   with an LLM generator (pre-computed paths), a ThinkPRM verifier, and GICA or baseline selection.
   Requires CUDA GPUs and vLLM. Reproduces **Figures 4–5** and **Tables 1 & 5**.
@@ -377,7 +377,7 @@ The library splits into four parts, a verifier, selection algorithms, verifier-s
   The last step's confidence becomes the `prefix_score`, which is the reward y_t consumed by the bandits.
 - Per-step binary labels. It parses the boxed correct or incorrect tokens emitted in the verification trace into a list of `step_labels`, one label per step.
 
-It also supports batched scoring (`predict_correctness_batch`) and an optional multi-round, sequential-scaling variant. Each call corresponds to one full PRM forward pass conditioned on the prefix, which is the cost unit the paper reports.
+It also supports batched scoring (`predict_correctness_batch`) and an optional multi-round, sequential-scaling variant. Each verifier call corresponds to one full PRM forward pass conditioned on the prefix, which is the verifier call cost the paper reports.
 
 **`verifier/__init__.py`** exposes `ThinkPRM` at the package level. The commented entries for discriminative and other PRM types mark variants that are not used in the paper.
 
@@ -448,66 +448,126 @@ The environment's `oracle_callback(step)` reconstructs the within-path prefix an
 
 ---
 
-## 5. Quick Start / Tutorial
+## 5. Quick Start and Tutorial
 
-The fastest way to confirm everything is wired correctly is the **synthetic track** (no GPU, no
-data, ~seconds).
+The fastest way to confirm everything is wired correctly is the **synthetic track**, which needs no GPU, no downloaded data, and finishes in seconds. The test-time-scaling track is covered afterwards and does require CUDA GPUs.
 
-### 5.1 One-line sanity check
+GICA targets Python 3.9 or newer. The instructions below give two equivalent ways to create an isolated environment, the standard-library `venv` and `conda`. Pick whichever you prefer. The remaining steps are identical in both cases.
+
+### 5.1 Create an environment and install
+
+#### Option A, venv (standard library, no extra tooling)
 
 ```bash
-conda activate gica
-pip install -e .                      # if not done already
-pip install -r requirements-synthetic.txt
+# from the repository root
+python -m venv .venv
+
+# activate it
+source .venv/bin/activate          # Linux or macOS
+# .venv\Scripts\activate           # Windows PowerShell
+
+python -m pip install --upgrade pip
 ```
+
+#### Option B, conda
+
+```bash
+conda create -n gica python=3.10 -y
+conda activate gica
+```
+
+#### Install the package (both options)
+
+The project is installable in editable mode, so source edits take effect without reinstalling. Install GICA itself, then the lightweight synthetic-track dependencies.
+
+```bash
+pip install -e .                          # installs the gica package
+pip install -r requirements-synthetic.txt # numpy, scipy, matplotlib (CPU only)
+```
+
+The synthetic track is intentionally minimal. It depends only on NumPy, SciPy (used by one m-LinGapE selection rule), and Matplotlib (used for figure generation). The heavier test-time-scaling dependencies are installed separately in Section 5.4.
+
+### 5.2 One-line sanity check
+
+This snippet builds a small compositional instance, runs GICA to certify an epsilon-optimal top-5 shortlist, and reports how many verifier calls it needed and how many of the true top-5 paths it recovered. The run is fully deterministic given the seed.
+
+Note that `top_k` is passed so that the environment's controlled rank-K boundary matches the shortlist size the algorithm certifies. Setting `top_k = m` is what makes the run terminate quickly and is the intended usage of the updated environment.
 
 ```bash
 python - <<'PY'
 from gica.synthetic.environment import ReasoningEnvironment
 from gica.synthetic.gica import GICA
 
-env = ReasoningEnvironment(num_paths=40, num_total_steps=800, dim=8, noise_std=0.1, seed=0)
+# Build a compositional instance with a controlled rank-5 boundary gap.
+env = ReasoningEnvironment(num_paths=40, dim=8, noise_std=0.1, top_k=5, seed=0)
+
 truth = sorted(env.get_ground_truth().items(), key=lambda x: x[1], reverse=True)
 true_top5 = {pid for pid, _ in truth[:5]}
 
 g = GICA(env.paths, env.feature_matrix, m=5, d=8,
-         lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0, step_pool_mode="paths")
+         lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0,
+         step_pool_mode="paths")
+
 done = False
 while not done and g.t < 5000:
     done, est = g.select_and_update(env.oracle_callback)
 
-print(f"GICA converged in {g.t} verifier calls; "
+print(f"GICA converged in {g.t} verifier calls, "
       f"recovered {len(set(est) & true_top5)}/5 of the true top-5.")
 PY
 ```
 
-Expected output (deterministic given the seed):
+Expected output, deterministic given the seed.
 
 ```text
-GICA converged in 679 verifier calls; recovered 5/5 of the true top-5.
+GICA converged in 33 verifier calls, recovered 5/5 of the true top-5.
 ```
 
-### 5.2 Run the full synthetic benchmark (produces Figure 3 plots)
+If you see 5/5 recovered and a convergence count in the low tens, the installation is correct. The exact count depends on the seed, the instance size, and the tolerance epsilon.
+
+### 5.3 Run the full synthetic benchmark 
 
 ```bash
 python -m gica.synthetic.benchmark
 ```
 
-This runs GICA and all baselines over multiple seeds and writes comparison figures to a
-`plots/` directory (created automatically in the current working directory). On a cluster:
+This runs GICA and the bandit baselines (CASE, LinGIFA, m-LinGapE) over multiple seeds and writes the pairwise and all-algorithm comparison figures to a `plots/` directory, which is created automatically in the current working directory. The figures cover gap-index comparisons, verifier calls, runtime, accuracy, and the measured pair-step correlation rho.
+
+On a cluster with Slurm, the same benchmark can be submitted as a batch job.
 
 ```bash
 sbatch scripts/synthetic/slurm_benchmark.sbatch
 ```
 
-### 5.3 A minimal Track-2 run (after installing Track-2 deps + downloading data)
+### 5.4 A minimal test-time-scaling run
+
+The test-time-scaling track runs the full pipeline with a real generator and a reasoning-based PRM, so it requires CUDA GPUs and the heavier pinned dependencies. Install those first.
 
 ```bash
-# from the repository root, with data/Deepseek-MathOdyssey-RL-7B.json present
+pip install -r requirements-tts.txt
+```
+
+This pulls in vLLM, Transformers, sentence-transformers, and the other libraries pinned to the versions used in the paper. The first run also downloads the ThinkPRM verifier weights, so expect a one-time setup cost.
+
+With a benchmark file present under `data/` (for example `data/Deepseek-MathOdyssey-RL-7B.json`), run GICA from the repository root.
+
+```bash
 python scripts/tts/run_gica.py
 ```
 
-This loads ThinkPRM-1.5B, runs GICA on MathOdyssey, and prints running Exact-Match and timing.
+This loads ThinkPRM-1.5B, runs GICA over the MathOdyssey paths, and prints running Exact-Match accuracy together with per-query verifier-call and timing statistics. The baseline and reference drivers described in Section 4.3 are launched the same way, for example.
+
+```bash
+# a bandit baseline (CASE, GIFA, or m-LinGapE) on a chosen dataset
+python scripts/tts/run_baselines.py --baseline_name CASE --file_path data/Deepseek-MathOdyssey-RL-7B.json
+
+# the exhaustive upper bound and the two cheap references
+python scripts/tts/run_best_of_m.py
+python scripts/tts/run_top1.py
+python scripts/tts/run_majority_vote.py
+```
+
+When you are finished, leave the environment with `deactivate` (venv) or `conda deactivate` (conda).
 
 ---
 
@@ -516,7 +576,7 @@ This loads ThinkPRM-1.5B, runs GICA on MathOdyssey, and prints running Exact-Mat
 All commands are run from the **repository root** with the `gica` environment active and (for
 Track 2) the datasets present in `data/`.
 
-### 6.1 Figure 3 — synthetic sample efficiency (RQ1)
+### 6.1 Synthetic sample efficiency (RQ1)
 
 The paper sweeps **`M ∈ {200, 500, 1000}`**, `d = 8`, `K = 10`, `R = 0.1`, path lengths
 uniform in `{20,…,80}`, averaged over seeds `{0,…,9}`, with hyperparameters
@@ -526,8 +586,7 @@ uniform in `{20,…,80}`, averaged over seeds `{0,…,9}`, with hyperparameters
    ```python
    ENV_CFG = dict(num_paths=200, num_total_steps=10_000, dim=8,
                   noise_std=0.1, path_len_min=20, path_len_max=80)
-   # set every ALG_* dict to: lambda_reg=1.0, delta=0.01, epsilon=0.02, R=0.1, S_0=2.0, m(=K)=10
-   N_TRIALS = 10
+   # set every ALG_* dict to a common (lambda_reg, delta, epsilon, R, S_0, K)
    ```
 2. Run once per scale:
    ```bash
@@ -537,8 +596,7 @@ uniform in `{20,…,80}`, averaged over seeds `{0,…,9}`, with hyperparameters
    **(b)** verifier calls, **(c)** runtime — as a function of `M`.
 
 > All algorithms must share `(λ, δ, ε, R, S₀, K)` so that differences reflect the **sampling rule**
-> alone. The committed defaults (`ε=0.1, δ=0.05, num_paths=50`) are demo values; override them with
-> the Appendix-B.1 values above to match the paper.
+> alone. Adjust the committed defaults in the __main__ block to the configuration you want to study.
 
 ### 6.2 Tables 1 & 5 and Figures 4–5 — TTS pipeline (RQ2/RQ3)
 
@@ -599,11 +657,7 @@ empirical effect is far milder than worst case.
 - **Determinism.** Track 1 is fully deterministic given the seed. In Track 2, ThinkPRM is run at
   `temperature=0.0` (greedy) with a fixed prompt and step-segmentation rule, so the verifier signal
   is reproducible; using the released `data/*.json` removes generator stochasticity.
-- **Hyperparameter drift.** A few committed constants differ slightly from the paper text
-  (synthetic demo defaults `ε=0.1, δ=0.05`; the canonical Appendix-B.1 values are `ε=0.02, δ=0.01`;
-  the TTS drivers use `ε=0.15` with a small damping factor, while Appendix B.2 reports `ε=0.1`).
-  Set them to the Appendix values to match the paper exactly. All methods share `(δ, λ, ε)` so the
-  comparison remains fair regardless.
+- **Configuration.** The committed constants in the drivers and the benchmark.py __main__ block are convenient defaults rather than fixed settings; adjust them to the configuration you want to study. All methods share (δ, λ, ε) within a run, so the comparison remains fair regardless of the chosen values.
 - **Optional extra baseline.** `baseline_igw_extreme.py` (`XtremeAlg3OnPaths`) is included for
   completeness but is **not** part of the paper’s reported results.
 - **Early stopping.** The TTS drivers add a small *patience* guard (stop if the top-K is unchanged
