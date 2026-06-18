@@ -358,38 +358,93 @@ Setting `step_pool_mode="paths"` restricts candidate steps to the boundary pair,
 
 ### 4.3 Track 2, Test Time Scaling (`src/gica/tts/` + `scripts/tts/`)
 
-Track 2 is organized into six **roles**.
+Track 2 is the end-to-end TTS pipeline behind Sections 4.3 and 4.4 of the paper (Figures 4 and 5, Tables 1 and 5). A generator LLM produces M candidate reasoning paths per question, a reasoning-based PRM scores individual steps, a bandit selection rule decides which steps to query, and the surviving top-K paths are collapsed into one answer that is graded by Exact Match. The library code lives under `src/gica/tts/` and the runnable experiments under `scripts/tts/`.
 
-**1. Data** (`data/*.json`) holds the question, a set of M = 100 candidate solutions, and the ground truth.
+The library splits into four parts, a verifier, selection algorithms, verifier-side utilities, and an answer-extraction module.
 
-**2. Environment** (`PRMEnvironment`, defined inside each driver) splits each path into steps on the delimiter `".\n"`, embeds the steps with `all-MiniLM-L6-v2`, and builds a compact **6 dimensional step feature**
+#### `src/gica/tts/` (library)
 
-    [ cos(step, question),
-      cos(step, path centroid),
-      cos(step, global centroid),
-      position fraction,
-      bias = 1,
-      boundary placeholder = 0 ]
+**`verifier/thinkprm.py`** wraps the ThinkPRM reasoning-based PRM (Khalifa et al., 2026) under vLLM and is the component that actually performs verification. Given the question together with a within-path step prefix, the model first generates a verification chain of thought and then emits a decision. The class converts the decision into a scalar reward in two ways.
 
-Its `oracle_callback(step)` reconstructs the within path prefix and calls the verifier. This call is what counts as a **verifier call**.
+- A prefix confidence. It reads the log probabilities of the " Yes" and " No" decision tokens and turns them into a number in
 
-**3. Verifier** (`tts/verifier/thinkprm.py`) wraps ThinkPRM under vLLM. Given the question together with a step prefix, it generates a verification chain of thought, then converts the " Yes" versus " No" decision log probabilities into a confidence in the range
+      [ 0, 1 ]
 
-    [ 0, 1 ]
+  via a temperature-scaled softmax,
 
-The drivers read the `prefix_score` (the reward y_t) and the `step_labels` (one binary label per step). The prompt lives in `tts/utils/prompt_template.py`.
+      confidence = exp(pos / T) / ( exp(pos / T) + exp(neg / T) )
 
-**4. Selection** (`tts/selection/*.py`) contains the bandit algorithms. Among them, **`gica.py`** is the only one with the *dynamic boundary feature*. Each round it overwrites the reserved last feature slot with the projection of every step embedding onto the current boundary direction
+  The last step's confidence becomes the `prefix_score`, which is the reward y_t consumed by the bandits.
+- Per-step binary labels. It parses the boxed correct or incorrect tokens emitted in the verification trace into a list of `step_labels`, one label per step.
 
-    centroid(π⋆) − centroid(π†)
+It also supports batched scoring (`predict_correctness_batch`) and an optional multi-round, sequential-scaling variant. Each call corresponds to one full PRM forward pass conditioned on the prefix, which is the cost unit the paper reports.
 
-which is the concrete mechanism for exploiting compositional structure. The baselines never touch that slot.
+**`verifier/__init__.py`** exposes `ThinkPRM` at the package level. The commented entries for discriminative and other PRM types mark variants that are not used in the paper.
 
-**5. Drivers** (`scripts/tts/*.py`) glue everything together, loop over questions, and grade.
+**`selection/gica.py`** implements the TTS version of `class GICA`, the realization of Algorithm 1 on real reasoning paths. Per round it forms the plug-in path estimates
 
-**6. Aggregation and grading** (`compute_em_from_top_m` inside each driver together with `tts/answer_extraction.py`) picks the winning path from the top K, extracts and normalizes its answer, and computes Exact Match.
+      mu_hat(p) = g(p) . theta_hat
 
-**Reference points.** `run_best_of_m.py` scores *every* step of *every* path, giving the exhaustive upper bound. `run_top1.py` takes the first sampled path, giving the floor. `run_majority_vote.py` runs self consistency over the final answers.
+  ranks them into a top-K shortlist, and checks the worst-case lower-confidence-bound stopping quantity against the threshold
+
+      Gamma_t  >=  -epsilon
+
+  It locates the hardest boundary pair by the smallest gap index
+
+      G_t = gap^2 / sigma^2
+
+  and, crucially, it is the only selection rule with the *dynamic boundary feature*. Each round it overwrites the reserved last feature slot of every step with the projection of that step's embedding onto the current boundary direction
+
+      centroid(top path)  -  centroid(challenger path)
+
+  It then queries the step that maximizes the exact one-step variance contraction
+
+      C_t(s) = ( g(p, p') . V_inv . x_s )^2 / ( 1 + x_s . V_inv . x_s )
+
+  observes the PRM reward, and applies the Sherman Morrison plus recursive-least-squares update to (V_inv, theta_hat). Setting `step_pool_mode="paths"` confines candidate steps to the boundary pair, which is the paper setting.
+
+**`selection/baseline_case.py`, `selection/baseline_lingifa.py`, `selection/baseline_mlingape.py`** are the TTS adaptations of CASE (Purohit et al., 2025), LinGIFA (Réda et al., 2021), and m-LinGapE (Xu et al., 2018). They treat each path feature g(p) as a virtual arm but still query at the step level, matching the compositional adaptation described in Section 4.1. They share GICA's
+
+      select_and_update(oracle) -> (done, top_ids)
+
+  interface and logging fields, but none of them touches the reserved boundary slot, so none exploits compositional step structure.
+
+**`selection/__init__.py`** documents the package as the bandit selection algorithms adapted to the TTS pipeline.
+
+**`utils/prompt_template.py`** builds the exact instruction the verifier sees. `format_verification_cot_for_thinkprm` is the main inference template used in the paper. It places the math problem and the proposed step-by-step solution into the ThinkPRM chat format and asks the model to review and critique each step. The file also keeps a training-time template and a non-thinking template that the paper does not use.
+
+**`utils/answer_parsing.py`** holds the verifier-side parsing helpers. `extract_step_labels` recovers the boxed correct or incorrect decisions from a verification trace into binary labels, and the remaining helpers (`retrieve_answer`, `judge_answer`, `get_majoirty_answer`) support answer retrieval and majority voting.
+
+**`utils/__init__.py`** documents the package as the verifier-side utilities for the prompt template and step-label parsing.
+
+**`answer_extraction.py`** normalizes free-form model output into a canonical answer string for grading. `extract_answer` pulls the final answer from boxed expressions, "the answer is" phrasings, or a trailing number, and `strip_string` together with its LaTeX-cleanup helpers (fixing fractions, square roots, and similar) canonicalizes both the prediction and the ground truth so that Exact Match is robust.
+
+#### `scripts/tts/` (drivers)
+
+Every driver embeds a small `PRMEnvironment` class that turns one question and its M candidate paths into a bandit instance. It splits each path into steps on the delimiter `".\n"`, embeds the steps with `all-MiniLM-L6-v2`, and builds the compact 6-dimensional step feature
+
+      [ cos(step, question),
+        cos(step, path centroid),
+        cos(step, global centroid),
+        position fraction,
+        bias = 1,
+        boundary placeholder = 0 ]
+
+The environment's `oracle_callback(step)` reconstructs the within-path prefix and calls the verifier, and this call is what counts as a **verifier call**. Each driver also defines `compute_em_from_top_m`, which picks a winning path from the returned top-K, extracts and normalizes its answer, and computes Exact Match.
+
+**`run_gica.py`** is the main GICA driver. It instantiates `selection.gica.GICA` with ThinkPRM-1.5B as the verifier, loops over a benchmark file, runs the selection rule per question, and grades the output. Its winner rule takes the first path in the GICA shortlist directly.
+
+**`run_baselines.py`** runs the three bandit baselines through a shared harness. A `--baseline_name` argument selects CASE, GIFA (LinGIFA), or m-LinGapE, and a `--file_path` argument selects the dataset. Its winner rule re-scores each shortlisted path with the verifier and keeps the highest-scoring one. This driver is configured with ThinkPRM-7B in the repository.
+
+**`run_best_of_m.py`** is the exhaustive upper-bound reference. It scores *every* step of *every* candidate path with the PRM (here ThinkPRM-1.5B) and collapses the result by majority vote over aggregated step-level scores. It issues the maximum possible number of verifier calls and defines the accuracy ceiling against which GICA's savings are reported.
+
+**`run_top1.py`** is the floor reference. It takes the first sampled path per question with no verification at all and reads the answer directly, isolating the contribution of the generator alone.
+
+**`run_majority_vote.py`** is the self-consistency reference. Its `self_con` routine extracts the final answer from every candidate path and returns the most frequent one, with no PRM involvement.
+
+**`run_gica_topm_steplabels.py`** is a GICA variant whose final-winner rule re-ranks the shortlist by the verifier `prefix_score` rather than taking the first path, isolating the effect of the winner-selection rule from the selection mechanism itself.
+
+**`run_gica_topm_thinkprm7b.py`** repeats the GICA pipeline with the larger ThinkPRM-7B verifier and exposes `--file_path` and `--dataset_name` arguments. It produces the verifier-scale ablation reported in Appendix C.2 (Table 5 and Figure 5).
 
 ---
 
