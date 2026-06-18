@@ -1,51 +1,100 @@
-# benchmark.py
-import numpy as np
+# -*- coding: utf-8 -*-
+"""
+benchmark.py
+============
+Comparative benchmark of the GICA top-K identification algorithm against
+fixed-confidence linear-bandit baselines (CASE, m-LinGapE, LinGIFA) on the
+synthetic reasoning environment defined in ``environment.py``.
+
+What this script does
+---------------------
+* Builds, per trial, a fresh :class:`ReasoningEnvironment` instance (a random
+  geometry with a *controlled* rank-K boundary gap ``Delta_C`` and an *emergent*
+  ``rho_dagger`` that we measure rather than set).
+* Runs each algorithm under a deterministic, arm-wise noise oracle
+  (:class:`FairOracle`) so every method sees identical, order-independent noise.
+* Optionally measures Assumption 3.2's ``rho_dagger`` along each algorithm's
+  realised trajectory (the per-round geometry ``V_t``); the time spent doing so
+  is excluded from the reported runtime.
+* Aggregates per-trial metrics (comparisons, runtime, oracle cost, gap-index /
+  stopping-quantity / accuracy traces, and ``rho_dagger``) and renders the
+  pairwise and all-algorithm comparison figures.
+
+"""
+
+import os
 import time
+from datetime import datetime
+
+import numpy as np
 import matplotlib.pyplot as plt
 
 from gica.synthetic.gica import GICA
 from gica.synthetic.baseline_lingifa import LinGIFA
 from gica.synthetic.baseline_mlingape import m_LinGapE
 from gica.synthetic.environment import ReasoningEnvironment
-from gica.synthetic.baseline_igw_extreme import XtremeAlg3OnPaths
 from gica.synthetic.baseline_case import CASE
 
-import os
-from datetime import datetime
 
-# ---- output folder + timestamp helpers ----
+# ---------------------------------------------------------------------------
+# Output folder + timestamp helpers
+# ---------------------------------------------------------------------------
 PLOTS_DIR = "plots"  # change to e.g. "results/plots" if you want
 RUN_TS = datetime.now().strftime("%Y%m%d_%H%M%S")
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
+
 def outpath(stem: str, ext: str = ".png") -> str:
+    """Return ``<PLOTS_DIR>/<stem>_<RUN_TS><ext>``."""
     return os.path.join(PLOTS_DIR, f"{stem}_{RUN_TS}{ext}")
 
-# ---------------------------
+
+# ---------------------------------------------------------------------------
 # Evaluation modes
-# ---------------------------
-# "path": baselines operate on PATH arms (each arm = a CoT/path)
-# "step_surrogate": baselines operate on STEP arms (each arm = a step),
-#                   then we rank PATHS using the learned surrogate (theta_hat)
+# ---------------------------------------------------------------------------
+# "path":           baselines operate on PATH arms (each arm = a CoT/path).
+# "step_surrogate": baselines operate on STEP arms (each arm = a step), then we
+#                   rank PATHS using the learned surrogate (theta_hat).
 BASELINE_ARM_MODE = "step_surrogate"  # "path" or "step_surrogate"
 
 # In step_surrogate mode:
-# - "baseline": stop when the baseline stops (often based on step-top-m, not path-top-m)
-# - "path_gamma": stop using your paper-style path-level Gamma_t criterion (recommended)
+# - "baseline":   stop when the baseline stops (often based on step-top-m, not
+#                 path-top-m).
+# - "path_gamma": stop using the paper-style path-level Gamma_t criterion
+#                 (recommended).
 STEP_SURROGATE_STOP_RULE = "baseline"  # "baseline" or "path_gamma"
 
 # How to model a PATH pull (only used in BASELINE_ARM_MODE="path"):
-# - "single": one noisy observation of g(pi)^T theta
-# - "avg_steps": equivalent to averaging T step observations (noise shrinks by 1/sqrt(T)).
+# - "single":    one noisy observation of g(pi)^T theta (path treated as a
+#                single black-box arm; oracle cost = 1).
+# - "avg_steps": the path is physically pulled step-by-step -- every individual
+#                step is queried through the step oracle and the rewards are
+#                averaged. This yields the true per-call runtime and the correct
+#                1/sqrt(T) noise reduction without any analytical shortcut.
 #                Recommended if you charge oracle_cost = len(path).
 PATH_PULL_MODEL = "single"  # "single" or "avg_steps"
 
 
+# ---------------------------------------------------------------------------
+# Assumption 3.2 (rho_dagger) measurement
+# ---------------------------------------------------------------------------
+# When enabled, after every ``RHO_EVERY`` rounds we evaluate rho_t at the
+# algorithm's current geometry V_t and fold it into the running
+# rho_dagger = min_t rho_t. The wall-clock spent here is measured separately and
+# subtracted from the reported runtime so it never inflates timing comparisons.
+MEASURE_RHO = True
+RHO_EVERY = 25            # compute rho_t every N rounds
+RHO_NPAIRS = 3000         # pair samples for rho_t  (<= 0 => use ALL pairs)
+RHO_NSTEPS = 3000         # step samples for rho_t  (<= 0 => use ALL steps)
+RHO_PAIRS = "all"         # "all" (literal assumption) or "boundary" (C*_K only)
+
+
 class FairOracle:
-    """
-    Deterministic, arm-wise noise oracle (order-independent).
-    - Each STEP has its own RNG stream (seeded by trial_seed + step_id)
-    - Each PATH has its own RNG stream (seeded by trial_seed + path_id)
+    """Deterministic, arm-wise noise oracle (order-independent).
+
+    Each STEP and each PATH owns an independent RNG stream seeded from the trial
+    seed and the arm id, so the noise an arm receives does not depend on the
+    order in which arms are pulled or on which algorithm is pulling them.
     """
 
     def __init__(self, env, trial_seed: int):
@@ -80,6 +129,7 @@ class FairOracle:
 
     # ---- Oracles ----
     def step(self, step_idx: int) -> float:
+        """Return one noisy observation of step ``step_idx``: x^T theta + noise."""
         step_idx = int(step_idx)
         x = self.env.feature_matrix[step_idx]
         clean = float(x @ self.env.true_theta)
@@ -87,36 +137,45 @@ class FairOracle:
         noise = float(rng.normal(0.0, self.env.noise_std))
         return clean + noise
 
-    def path(self, path_id: int) -> float:
+    def path(self, path_id: int, path_pull_model: str = PATH_PULL_MODEL) -> float:
+        """Return one noisy observation of path ``path_id``.
+
+        ``path_pull_model`` selects the cost/noise model:
+
+        * ``"single"``    -- treat the whole path as a single arm and draw one
+          noisy observation of g(pi)^T theta (cost 1).
+        * ``"avg_steps"`` -- physically query every step in the path through the
+          step oracle and average the rewards. No analytical shortcut is taken,
+          so the measured runtime and the resulting 1/sqrt(T) noise reduction
+          are exact.
+        """
         path_id = int(path_id)
         steps = self.env.paths[path_id]
-        g = np.mean(self.env.feature_matrix[steps], axis=0)
-        clean = float(g @ self.env.true_theta)
 
-        rng = self._get_rng(1, path_id)
-
-        if PATH_PULL_MODEL == "single":
-            # One noisy observation of g^T theta
+        if path_pull_model == "single":
+            g = np.mean(self.env.feature_matrix[steps], axis=0)
+            clean = float(g @ self.env.true_theta)
+            rng = self._get_rng(1, path_id)
             noise = float(rng.normal(0.0, self.env.noise_std))
             return clean + noise
 
-        elif PATH_PULL_MODEL == "avg_steps":
-            # Equivalent to averaging T step observations (noise shrinks as 1/sqrt(T))
-            T = max(1, len(steps))
-            noise = float(rng.normal(0.0, self.env.noise_std / np.sqrt(T)))
-            return clean + noise
+        elif path_pull_model == "avg_steps":
+            # NO SHORTCUT: query each step one-by-one to measure true runtime and
+            # obtain the correct averaged-noise behaviour.
+            step_rewards = [self.step(s) for s in steps]
+            return float(np.mean(step_rewards))
 
         else:
             raise ValueError("Unknown PATH_PULL_MODEL")
 
 
-# ---------------------------
+# ---------------------------------------------------------------------------
 # Helpers for step-surrogate mode
-# ---------------------------
+# ---------------------------------------------------------------------------
 def make_save_path(filename: str, out_dir: str, run_ts: str) -> str:
-    """
-    Turn 'foo.png' into '<out_dir>/foo_<run_ts>.png'
-    Works even if filename has no extension.
+    """Turn ``'foo.png'`` into ``'<out_dir>/foo_<run_ts>.png'``.
+
+    Works even if ``filename`` has no extension.
     """
     base = os.path.basename(filename)
     name, ext = os.path.splitext(base)
@@ -124,14 +183,15 @@ def make_save_path(filename: str, out_dir: str, run_ts: str) -> str:
         ext = ".png"
     return os.path.join(out_dir, f"{name}_{run_ts}{ext}")
 
-def sigma_for_oracle(env, *, oracle_kind: str) -> float:
-    """
-    Calibrate sigma/R to match the oracle actually used.
 
-    - step oracle: noise std = env.noise_std
-    - path oracle:
-        * single     : noise std = env.noise_std
-        * avg_steps  : noise std = env.noise_std/sqrt(T), worst-case at Tmin
+def sigma_for_oracle(env, *, oracle_kind: str) -> float:
+    """Calibrate the sub-Gaussian scale ``R`` to match the oracle actually used.
+
+    * step oracle -- noise std = ``env.noise_std``.
+    * path oracle --
+        - ``single``    : noise std = ``env.noise_std``;
+        - ``avg_steps`` : noise std = ``env.noise_std / sqrt(T)``, taken at the
+          worst case ``T = Tmin`` (the shortest path).
     """
     oracle_kind = str(oracle_kind).lower().strip()
     if oracle_kind == "step":
@@ -148,21 +208,43 @@ def sigma_for_oracle(env, *, oracle_kind: str) -> float:
 
 
 def make_step_as_paths(env):
-    """
-    Turn steps into singleton 'paths' so existing path-arm baselines can run without rewriting:
-      step_id -> [step_id]
-    Then g(pi) = mean(feature_matrix[[step_id]]) = x_step.
+    """Turn each step into a singleton 'path' so path-arm baselines can run
+    unchanged on step arms: ``step_id -> [step_id]``. Then
+    ``g(pi) = mean(feature_matrix[[step_id]]) = x_step``.
     """
     return {int(s): [int(s)] for s in range(env.feature_matrix.shape[0])}
 
 
-class StepSurrogateToPathRanker:
+def _get_Vinv(algo):
+    """Best-effort fetch of ``V_t^{-1}`` from an algorithm.
+
+    Tries common attribute names and transparently handles the step-surrogate
+    wrapper via ``algo.base``. Returns ``None`` when no design matrix is exposed.
     """
-    Wrap a baseline run on STEP-arms (singleton paths) and return TOP-m PATHS by g(pi)^T theta_hat.
+    for obj in (algo, getattr(algo, "base", None)):
+        if obj is None:
+            continue
+        for name in ("V_inv", "Vinv", "Vt_inv"):
+            if hasattr(obj, name):
+                return getattr(obj, name)
+        for name in ("V", "Vt", "A", "design_matrix"):
+            if hasattr(obj, name):
+                try:
+                    return np.linalg.inv(getattr(obj, name))
+                except Exception:
+                    return None
+    return None
+
+
+class StepSurrogateToPathRanker:
+    """Wrap a baseline running on STEP arms (singleton paths) and return the
+    TOP-m PATHS ranked by ``g(pi)^T theta_hat``.
+
     Optionally stop using the PATH-level Gamma criterion (recommended).
 
-    IMPORTANT: We track wrapper post-processing time in self._postprocess_time so the
-    experiment runner can subtract it from the baseline runtime.
+    The wrapper post-processing time is accumulated in
+    ``self._postprocess_time`` so the experiment runner can subtract it from the
+    baseline runtime.
     """
 
     def __init__(self, base_algo, env, m_paths, epsilon, delta, R, S_0, lambda_reg, name):
@@ -176,19 +258,19 @@ class StepSurrogateToPathRanker:
         self.lambda_reg = float(lambda_reg)
         self._name = str(name)
 
-        # Precompute path features g(pi) over REAL paths
+        # Precompute path features g(pi) over the REAL paths.
         self.g_pi_paths = {
             pid: np.mean(env.feature_matrix[steps], axis=0)
             for pid, steps in env.paths.items()
         }
 
-        # Traces expected by run_trials/plotters
+        # Traces expected by run_trials/plotters.
         self.best_G_history = []
         self.min_lcb_history = []
         self.total_comparisons = 0
         self.t = 0  # mirrors base.t
 
-        # Post-processing time accumulator (excluded from baseline runtime)
+        # Post-processing time accumulator (excluded from baseline runtime).
         self._postprocess_time = 0.0
 
     @staticmethod
@@ -249,10 +331,10 @@ class StepSurrogateToPathRanker:
         return min_lcb
 
     def select_and_update(self, oracle_step):
-        # 1) Run ONE iteration of the baseline (core baseline time)
+        # 1) Run ONE iteration of the baseline (core baseline time).
         done_base, _ = self.base.select_and_update(oracle_step)
 
-        # 2) Time ONLY the wrapper post-processing below
+        # 2) Time ONLY the wrapper post-processing below.
         t_post0 = time.perf_counter()
 
         self.t = getattr(self.base, "t", self.t)
@@ -279,11 +361,12 @@ class StepSurrogateToPathRanker:
         return done, top_paths
 
 
-# ---------------------------
+# ---------------------------------------------------------------------------
 # Plotting + trial runner utilities
-# ---------------------------
+# ---------------------------------------------------------------------------
 
 def pad_nan(seqs):
+    """Stack ragged 1-D sequences into a 2-D array, right-padding with NaN."""
     max_len = max(len(s) for s in seqs)
     out = np.full((len(seqs), max_len), np.nan, dtype=float)
     for i, s in enumerate(seqs):
@@ -297,16 +380,40 @@ def run_trials(
     max_rounds=2000,
     verbose=True,
     log_every=50,
+    measure_rho=MEASURE_RHO,
+    rho_every=RHO_EVERY,
+    rho_npairs=RHO_NPAIRS,
+    rho_nsteps=RHO_NSTEPS,
+    rho_pairs=RHO_PAIRS,
 ):
+    """Run ``n_trials`` independent trials of one algorithm and collect metrics.
+
+    Returns a 7-tuple of arrays/lists:
+        (total_comparisons, runtimes, oracle_costs,
+         G_traces, lcb_traces, acc_traces, rho_traces)
+
+    ``rho_traces`` holds the realised ``rho_dagger`` per trial (or NaN when rho
+    measurement is disabled or unsupported by the environment). The time spent
+    measuring rho is excluded from ``runtimes``.
+    """
     total_comparisons = []
     runtimes = []
     oracle_costs = []
     G_traces = []
     lcb_traces = []
     acc_traces = []
+    rho_traces = []
+
+    # Normalise "<= 0 => use ALL" sentinels into the None the environment expects.
+    rho_npairs = None if (rho_npairs is not None and rho_npairs <= 0) else rho_npairs
+    rho_nsteps = None if (rho_nsteps is not None and rho_nsteps <= 0) else rho_nsteps
 
     for k in range(n_trials):
         algo = make_algo_fn(k)
+
+        # Reset the environment's running rho_dagger tracker for this trial.
+        if measure_rho and hasattr(algo, "_env") and hasattr(algo._env, "reset_realized_rho"):
+            algo._env.reset_realized_rho()
 
         oracle_base = algo._oracle
         cost_fn = getattr(algo, "_oracle_cost", lambda _a: 1)
@@ -322,9 +429,22 @@ def run_trials(
         done = False
         top = None
         acc_hist = []
+        rho_overhead = 0.0  # time spent measuring rho (excluded from runtime)
 
         while (not done) and (algo.t < max_rounds):
             done, top = algo.select_and_update(oracle_wrapped)
+
+            # ---- Assumption 3.2: measure rho_t at the current geometry V_t ----
+            if measure_rho and (algo.t % rho_every == 0) and hasattr(algo, "_env") \
+                    and hasattr(algo._env, "update_realized_rho"):
+                _trho0 = time.perf_counter()
+                _Vi = _get_Vinv(algo)
+                if _Vi is not None:
+                    algo._env.update_realized_rho(
+                        _Vi, n_pairs=rho_npairs, n_steps=rho_nsteps,
+                        seed=algo.t, pairs=rho_pairs,
+                    )
+                rho_overhead += time.perf_counter() - _trho0
 
             correct = len(set(top).intersection(set(algo._true_top_m)))
             acc = correct / algo.m
@@ -337,7 +457,8 @@ def run_trials(
                 )
 
         rt = time.perf_counter() - t0
-        # Subtract wrapper post-processing time (only exists in step_surrogate wrappers)
+        rt -= rho_overhead  # exclude Assumption-3.2 rho measurement from runtime
+        # Subtract wrapper post-processing time (only exists in step_surrogate wrappers).
         rt -= float(getattr(algo, "_postprocess_time", 0.0))
         rt = max(0.0, rt)
 
@@ -349,12 +470,21 @@ def run_trials(
         lcb_traces.append(np.array(getattr(algo, "min_lcb_history", []), dtype=float))
         acc_traces.append(np.array(acc_hist, dtype=float))
 
+        # Read off the realised rho_dagger for this trial (NaN if unavailable).
+        rho_dagger = np.nan
+        if measure_rho and hasattr(algo, "_env") and hasattr(algo._env, "get_realized_rho"):
+            _rd = algo._env.get_realized_rho()
+            rho_dagger = _rd if np.isfinite(_rd) else np.nan
+        rho_traces.append(rho_dagger)
+
         if verbose:
             correct = len(set(top).intersection(set(algo._true_top_m)))
             acc = correct / algo.m
+            rho_str = f", rho_dagger={rho_dagger:.4e}" if not np.isnan(rho_dagger) else ""
             print(
                 f"[{algo._name} trial {k+1}/{n_trials}] finished: iter={algo.t}, done={done}, "
-                f"final acc={correct}/{algo.m} ({acc:.2f}), oracle_cost={oracle_cost}, runtime={rt:.2f}s"
+                f"final acc={correct}/{algo.m} ({acc:.2f}), oracle_cost={oracle_cost}, "
+                f"runtime={rt:.2f}s{rho_str}"
             )
 
     return (
@@ -364,14 +494,16 @@ def run_trials(
         G_traces,
         lcb_traces,
         acc_traces,
+        np.array(rho_traces),
     )
 
 
-# ---------------------------
-# Plotting helpers (unchanged)
-# ---------------------------
+# ---------------------------------------------------------------------------
+# Plotting helpers
+# ---------------------------------------------------------------------------
 
 def plot_results(total_comparisons, runtimes, G_traces, lcb_traces, label="GICA", epsilon=0.05, save_path="pgihA_metrics.png"):
+    """Render a single-algorithm 4-panel summary figure."""
     avg_comp = float(np.mean(total_comparisons))
     std_comp = float(np.std(total_comparisons, ddof=1)) if len(total_comparisons) > 1 else 0.0
 
@@ -447,8 +579,9 @@ def plot_results(total_comparisons, runtimes, G_traces, lcb_traces, label="GICA"
 
 
 def plot_compare(resA, resB, nameA="GICA", nameB="CASE", epsilon=0.05, save_path="compare.png"):
-    compsA, rtsA, orcA, G_A, L_A, Acc_A = resA
-    compsB, rtsB, orcB, G_B, L_B, Acc_B = resB
+    """Render an 8-panel head-to-head comparison of two algorithms."""
+    compsA, rtsA, orcA, G_A, L_A, Acc_A, _RhoA = resA
+    compsB, rtsB, orcB, G_B, L_B, Acc_B, _RhoB = resB
 
     GA = pad_nan(G_A)
     GB = pad_nan(G_B)
@@ -575,6 +708,7 @@ def plot_compare(resA, resB, nameA="GICA", nameB="CASE", epsilon=0.05, save_path
 
 
 def plot_compare_all(res_dict, epsilon=0.05, save_path="compare_all_algorithms.png"):
+    """Render a 7-panel overlay comparing every algorithm in ``res_dict``."""
     names = list(res_dict.keys())
     nA = len(names)
 
@@ -595,7 +729,7 @@ def plot_compare_all(res_dict, epsilon=0.05, save_path="compare_all_algorithms.p
     G_stats, L_stats, A_stats = {}, {}, {}
 
     for name in names:
-        comps, rts, orc, G_tr, L_tr, Acc_tr = res_dict[name]
+        comps, rts, orc, G_tr, L_tr, Acc_tr, _Rho = res_dict[name]
         comps_list.append(np.asarray(comps))
         rts_list.append(np.asarray(rts))
         orc_list.append(np.asarray(orc))
@@ -688,44 +822,54 @@ def plot_compare_all(res_dict, epsilon=0.05, save_path="compare_all_algorithms.p
     plt.show()
 
 
-# ---------------------------
+# ---------------------------------------------------------------------------
 # Main experiment runner
-# ---------------------------
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     SEED = 0
+
+    # Environment configuration. These knobs mirror the updated
+    # ``ReasoningEnvironment`` signature: ``Delta_C`` (the rank-K boundary gap)
+    # is CONTROLLED via theta_norm * grid_gap, while ``rho_dagger`` is an
+    # emergent property that we MEASURE rather than set. ``top_k`` selects the
+    # binding boundary rank (pass the same K/m the algorithms identify).
     ENV_CFG = dict(
         num_paths=50,
-        num_total_steps=1000,
         dim=8,
         noise_std=0.1,
         path_len_min=50,
         path_len_max=300,
+        theta_norm=1.0,       # ||theta*||; must be <= every algorithm's S_0
+        util_floor=0.30,      # smallest path utility
+        grid_gap=1e-1,        # Delta_C = theta_norm * grid_gap
+        gap_spread=3.0,       # accepted by the env, currently unused
+        feature_norm=8.0,     # feature-norm budget L
+        b_min=0.05,           # accepted by the env, currently unused
+        b_max=0.15,           # accepted by the env, currently unused
+        top_k=10,             # rank of the binding boundary (== m below)
+        step_scale=0.30,      # std of the random step features
+        util_range=1.0,       # spread of the random path qualities
     )
 
-    # NOTE: we still keep R in these dicts, but we will OVERRIDE it per-trial
-    # using sigma_for_oracle(...) to match the oracle's actual noise.
+    # NOTE: we keep R in these dicts, but OVERRIDE it per-trial using
+    # sigma_for_oracle(...) so that the confidence widths match the oracle's
+    # actual noise.
     ALG_PGIHA = dict(m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0, step_pool_mode="paths")
-    ALG_CASE  = dict(m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0, challenger_size=50, challenger_batch=50, seed=0)
+    ALG_CASE = dict(m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0, challenger_size=50, challenger_batch=50, seed=0)
     ALG_MLINGAPE = dict(m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0, selection_rule="largest_variance")
-    ALG_GIFA  = dict(m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0, selection_rule="largest_variance")
-
-    ALG_XTREME = dict(
-        m=10,
-        k=1,
-        r=1,
-        lam=1.0,
-        gamma_C=1.0,
-        branching=2,
-        beam_size=ENV_CFG["num_paths"],
-        seed=0,
-        squash_rewards=True,
-        sigmoid_alpha=5.0,
-        sigmoid_beta=0.0,
-        sigmoid_clip=35.0,
-    )
+    ALG_GIFA = dict(m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0, selection_rule="largest_variance")
 
     N_TRIALS = 10
     MAX_ROUNDS = 10_000
+
+    # Bundle the rho-measurement knobs once so every run_trials call is consistent.
+    RHO_KW = dict(
+        measure_rho=MEASURE_RHO,
+        rho_every=RHO_EVERY,
+        rho_npairs=RHO_NPAIRS,
+        rho_nsteps=RHO_NSTEPS,
+        rho_pairs=RHO_PAIRS,
+    )
 
     trial_seeds = list(range(N_TRIALS))
     assert len(trial_seeds) == N_TRIALS
@@ -792,7 +936,8 @@ if __name__ == "__main__":
                 seed=seed_k,
             )
             algo._env = env
-            algo._oracle = fair.path
+            # Bind the configured path-pull model into the oracle call.
+            algo._oracle = lambda path_id, fp=fair.path: fp(path_id, PATH_PULL_MODEL)
             algo._true_top_m = true_top_m
             algo._name = "CASE(path-arms)"
 
@@ -869,7 +1014,7 @@ if __name__ == "__main__":
                 seed=seed_k,
             )
             algo._env = env
-            algo._oracle = fair.path
+            algo._oracle = lambda path_id, fp=fair.path: fp(path_id, PATH_PULL_MODEL)
             algo._true_top_m = true_top_m
             algo._name = f"m-LinGapE({ALG_MLINGAPE['selection_rule']}; path-arms)"
 
@@ -945,7 +1090,7 @@ if __name__ == "__main__":
                 seed=seed_k,
             )
             algo._env = env
-            algo._oracle = fair.path
+            algo._oracle = lambda path_id, fp=fair.path: fp(path_id, PATH_PULL_MODEL)
             algo._true_top_m = true_top_m
             algo._name = f"LinGIFA({ALG_GIFA['selection_rule']}; path-arms)"
 
@@ -994,60 +1139,19 @@ if __name__ == "__main__":
         else:
             raise ValueError("Unknown BASELINE_ARM_MODE")
 
-    def make_algo_xtreme(k):
-        seed_k = trial_seeds[k]
-        env = ReasoningEnvironment(**ENV_CFG, seed=seed_k)
-
-        true_scores = env.get_ground_truth()
-        sorted_truth = sorted(true_scores.items(), key=lambda x: x[1], reverse=True)
-        true_top_m = [pid for pid, _ in sorted_truth[: ALG_XTREME["m"]]]
-
-        fair = FairOracle(env, seed_k)
-        oracle_xtreme = fair.path
-
-        algo = XtremeAlg3OnPaths(
-            num_paths=ENV_CFG["num_paths"],
-            m=ALG_XTREME["m"],
-            k=ALG_XTREME["k"],
-            r=ALG_XTREME["r"],
-            beam_size=ALG_XTREME["beam_size"],
-            branching=ALG_XTREME["branching"],
-            lam=ALG_XTREME["lam"],
-            gamma_C=ALG_XTREME["gamma_C"],
-            seed=seed_k,
-            name="eXtreme(Alg3)",
-            squash_rewards=ALG_XTREME["squash_rewards"],
-            sigmoid_alpha=ALG_XTREME["sigmoid_alpha"],
-            sigmoid_beta=ALG_XTREME["sigmoid_beta"],
-            sigmoid_clip=ALG_XTREME.get("sigmoid_clip", 35.0),
-        )
-
-        algo._env = env
-        algo._oracle = oracle_xtreme
-        algo._true_top_m = true_top_m
-        algo._name = "eXtreme(Alg3)"
-
-        if PATH_PULL_MODEL == "single":
-            algo._oracle_cost = lambda _path_id: 1
-        else:
-            algo._oracle_cost = lambda path_id, paths=env.paths: len(paths[int(path_id)])
-        return algo
-
     # ---------------------------
     # Run trials (FAIR budget)
     # ---------------------------
-    res_pgiha = run_trials(make_algo_fn=make_algo_pgiha, n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50)
-    res_case = run_trials(make_algo_fn=make_algo_case, n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50)
-    res_mlingape = run_trials(make_algo_fn=make_algo_mlingape, n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50)
-    res_gifa = run_trials(make_algo_fn=make_algo_gifa, n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50)
-    res_xtreme = run_trials(make_algo_fn=make_algo_xtreme, n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50)
+    res_pgiha = run_trials(make_algo_fn=make_algo_pgiha, n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50, **RHO_KW)
+    res_case = run_trials(make_algo_fn=make_algo_case, n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50, **RHO_KW)
+    res_mlingape = run_trials(make_algo_fn=make_algo_mlingape, n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50, **RHO_KW)
+    res_gifa = run_trials(make_algo_fn=make_algo_gifa, n_trials=N_TRIALS, max_rounds=MAX_ROUNDS, verbose=True, log_every=50, **RHO_KW)
 
     all_results = {
         "GICA": res_pgiha,
         "CASE": res_case,
         "m-LinGapE": res_mlingape,
         "LinGIFA": res_gifa,
-        "eXtreme(Alg3)": res_xtreme,
     }
 
     plot_compare(res_pgiha, res_mlingape, nameA="GICA", nameB="m-LinGapE",
@@ -1061,12 +1165,6 @@ if __name__ == "__main__":
 
     plot_compare(res_case, res_gifa, nameA="CASE", nameB="LinGIFA",
                  epsilon=ALG_CASE["epsilon"], save_path=outpath("compare_case_gifa"))
-
-    plot_compare(res_case, res_xtreme, nameA="CASE", nameB="eXtreme",
-                 epsilon=ALG_CASE["epsilon"], save_path=outpath("compare_case_xtreme"))
-
-    plot_compare(res_pgiha, res_xtreme, nameA="GICA", nameB="eXtreme",
-                 epsilon=ALG_PGIHA["epsilon"], save_path=outpath("compare_pgiha_xtreme"))
 
     plot_compare(res_pgiha, res_case, nameA="GICA", nameB="CASE",
                  epsilon=ALG_PGIHA["epsilon"], save_path=outpath("compare_pgiha_case"))
