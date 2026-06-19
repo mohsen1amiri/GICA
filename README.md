@@ -653,7 +653,7 @@ empirical effect is far milder than worst case.
 
 ---
 
-## 8. Citation
+## 7. Citation
 
 If you use this code, please cite the paper:
 
