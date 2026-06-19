@@ -650,27 +650,6 @@ This is a synthetic study: reseed the random geometry in
 set, and record GICA’s verifier calls and runtime. Expected trend: cost scales as `O(1/ρ†)`, but the
 empirical effect is far milder than worst case.
 
----
-
-## 7. Reproducibility notes & known caveats
-
-- **Determinism.** Track 1 is fully deterministic given the seed. In Track 2, ThinkPRM is run at
-  `temperature=0.0` (greedy) with a fixed prompt and step-segmentation rule, so the verifier signal
-  is reproducible; using the released `data/*.json` removes generator stochasticity.
-- **Configuration.** The committed constants in the drivers and the benchmark.py __main__ block are convenient defaults rather than fixed settings; adjust them to the configuration you want to study. All methods share (δ, λ, ε) within a run, so the comparison remains fair regardless of the chosen values.
-- **Optional extra baseline.** `baseline_igw_extreme.py` (`XtremeAlg3OnPaths`) is included for
-  completeness but is **not** part of the paper’s reported results.
-- **Early stopping.** The TTS drivers add a small *patience* guard (stop if the top-K is unchanged
-  for several rounds) on top of GICA’s statistical stopping rule, so a single hard question never
-  runs unboundedly.
-- **Feature normalization.** The 6-dimensional TTS features are described in the paper as
-  ℓ2-normalized to `L = 1`; the corresponding line is commented out in the driver’s
-  `build_features`. Re-enable it to match the paper text precisely.
-- **Provenance.** Track 2 builds on the public
-  [GenPRM](https://github.com/RyanLiu112/GenPRM) pipeline; the upstream data-synthesis / PRM-training
-  scaffolding is **not** required to reproduce the paper’s evaluation and is therefore omitted from
-  this unified repository (the verifier prompt template it provided is retained in
-  `src/gica/tts/utils/prompt_template.py`).
 
 ---
 
