@@ -29,7 +29,7 @@ This repository contains **two self-contained experimental tracks**:
 
 - **Track 1 — Synthetic** (`src/gica/synthetic/`): isolates the bandit algorithm’s sample
   efficiency on compositional top-K instances with a known ground-truth parameter. CPU-only,
-  deterministic, runs in seconds. Supports the synthetic study of **Figure 3**.
+  deterministic, runs in seconds. 
 - **Track 2 — Test-Time Scaling** (`src/gica/tts/` + `scripts/tts/`): the end-to-end TTS pipeline
   with an LLM generator (pre-computed paths), a ThinkPRM verifier, and GICA or baseline selection.
   Requires CUDA GPUs and vLLM. Reproduces **Figures 4–5** and **Tables 1 & 5**.
@@ -166,7 +166,8 @@ run `conda deactivate` (conda) or `deactivate` (venv).
 pip install -r requirements-synthetic.txt
 ```
 
-That is all you need to reproduce Figure 3. No GPU, no datasets, no model downloads.
+That is all you need for the synthetic track. No GPU, no datasets, no model downloads.
+
 
 ### 3.2 Track 2 — Test-Time Scaling (GPU)
 
@@ -573,14 +574,11 @@ When you are finished, leave the environment with `deactivate` (venv) or `conda 
 
 ## 6. Reproducing the Paper
 
-All commands are run from the **repository root** with the `gica` environment active and (for
-Track 2) the datasets present in `data/`.
+All commands are run from the repository root with the gica environment active and (for the test-time-scaling experiments) the datasets present in data/. The test-time-scaling experiments below reproduce the paper's reported results.
 
 ### 6.1 Synthetic sample efficiency (RQ1)
 
-The paper sweeps **`M ∈ {200, 500, 1000}`**, `d = 8`, `K = 10`, `R = 0.1`, path lengths
-uniform in `{20,…,80}`, averaged over seeds `{0,…,9}`, with hyperparameters
-`λ=1.0, δ=0.01, ε=0.02, S₀=2.0` (Appendix B.1).
+The synthetic study uses M ∈ {200, 500, 1000}, d = 8, K = 10, R = 0.1, path lengths uniform in {20,…,80}, averaged over seeds {0,…,9}, with hyperparameters λ=1.0, δ=0.01, ε=0.02, S₀=2.0.
 
 1. Open `src/gica/synthetic/benchmark.py` and set, in the `__main__` block:
    ```python
@@ -643,7 +641,7 @@ To switch the **benchmark** for the hardcoded-path drivers (`run_gica.py`, `run_
 of the file. To switch the **verifier**, edit the `model_name_or_path="launch/ThinkPRM-…"` argument
 in the driver’s `ThinkPRM(...)` constructor.
 
-### 6.3 Appendix C.1 — sensitivity to the pair–step correlation ρ†
+### 6.3 Sensitivity to the pair–step correlation ρ†
 
 This is a synthetic study: reseed the random geometry in
 `src/gica/synthetic/environment.py` / `benchmark.py`, measure the realized ρ† over the boundary
@@ -665,6 +663,48 @@ If you use this code, please cite the paper:
   year    = {2026}
 }
 ```
+
+## 8. References
+
+The following works are referenced throughout this README and implemented or
+built upon in this repository.
+
+**Reasoning-based verifier (PRM)**
+
+- M. Khalifa, R. Agarwal, L. Logeswaran, J. Kim, H. Peng, M. Lee, H. Lee, and
+  L. Wang. *Process Reward Models That Think.* Transactions on Machine Learning
+  Research (TMLR), 2026. arXiv:2504.16828, 2025.
+  https://arxiv.org/abs/2504.16828
+
+**Bandit baselines**
+
+- K. Purohit, V. Venktesh, S. Bhattacharya, and A. Anand. *Sample Efficient
+  Demonstration Selection for In-Context Learning (CASE).* Proceedings of the
+  42nd International Conference on Machine Learning (ICML), PMLR 267, 2025.
+  arXiv:2506.08607. https://arxiv.org/abs/2506.08607
+
+- C. Réda, E. Kaufmann, and A. Delahaye-Duriez. *Top-m Identification for Linear
+  Bandits (LinGIFA / GIFA family).* Proceedings of the 24th International
+  Conference on Artificial Intelligence and Statistics (AISTATS), PMLR
+  130:1108–1116, 2021. arXiv:2103.10070.
+  https://proceedings.mlr.press/v130/reda21a.html
+
+- L. Xu, J. Honda, and M. Sugiyama. *A Fully Adaptive Algorithm for Pure
+  Exploration in Linear Bandits (LinGapE / m-LinGapE).* Proceedings of the 21st
+  International Conference on Artificial Intelligence and Statistics (AISTATS),
+  PMLR 84:843–851, 2018. arXiv:1710.05552.
+  https://proceedings.mlr.press/v84/xu18d.html
+
+**Software and data this repository builds on**
+
+- ThinkPRM reference implementation: https://github.com/mukhal/thinkprm
+- GenPRM pipeline (test-time-scaling scaffolding):
+  https://github.com/RyanLiu112/GenPRM
+- Qwen2.5-Math (answer grading / normalization utilities):
+  https://github.com/QwenLM/Qwen2.5-Math
+- CASE reference implementation: https://github.com/kiranpurohit/CASE
+- Top-m linear bandit reference implementation (LinGIFA / GIFA):
+  https://github.com/clreda/linear-top-m
 
 ## Acknowledgements
 
