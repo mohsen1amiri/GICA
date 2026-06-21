@@ -583,7 +583,7 @@ The synthetic study uses M ∈ {200, 500, 1000}, d = 8, K = 10, R = 0.1, path le
 1. Open `src/gica/synthetic/benchmark.py` and set, in the `__main__` block:
    ```python
    ENV_CFG = dict(num_paths=200, num_total_steps=10_000, dim=8,
-                  noise_std=0.1, path_len_min=20, path_len_max=80)
+                  noise_std=0.1, path_len_min=20, path_len_max=80, grid_gap=1e-3)
    # set every ALG_* dict to a common (lambda_reg, delta, epsilon, R, S_0, K)
    ```
 2. Run once per scale:
