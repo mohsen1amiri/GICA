@@ -1,6 +1,43 @@
+"""
+answer_extraction.py
+====================
+
+Final-answer extraction and string normalization used to score the TTS pipeline by
+Exact-Match (EM). After GICA / a baseline selects a winning reasoning path, the path's
+free-form text is reduced to a canonical answer string here, then compared against the
+ground truth.
+
+These routines are adapted from the math-evaluation utilities of Qwen2.5-Math and the
+upstream GenPRM pipeline; ``strip_string`` performs the heavy LaTeX/format normalization
+(fractions, roots, units, degrees, currency, infinity, etc.) so that two strings denoting
+the same mathematical answer compare equal.
+
+Note:
+    ``extract_answer``'s "boxed" and program-output branches call
+    ``extract_boxed_answers`` and ``extract_program_output``, which are expected to be
+    available in the importing scope; they are not defined in this module. The TTS drivers
+    import only ``strip_string``, so those branches are not exercised by the pipeline.
+"""
+
 import re
 import regex
+
+
 def extract_answer(pred_str, exhaust=False):
+    """Extract the final answer string(s) from a model's free-form output.
+
+    Resolution order: an explicit "final answer is $...$" template, a ``\\boxed{...}``
+    answer, a "the answer is ..." phrase, then a program-output fallback, and finally the
+    last number in the text. Each candidate is trimmed and normalized via ``strip_string``.
+
+    Args:
+        pred_str (str): Raw model output.
+        exhaust (bool): If True, return the list of all extracted candidates; otherwise
+            return the last (most specific) candidate, or "" if none was found.
+
+    Returns:
+        list[str] | str: All candidates when ``exhaust`` is True, else a single string.
+    """
     pred = []
     if "final answer is $" in pred_str and "$. I hope" in pred_str:
         tmp = pred_str.split("final answer is $", 1)[1]
@@ -24,7 +61,7 @@ def extract_answer(pred_str, exhaust=False):
             if ans:
                 pred.append(ans)
 
-    # multiple line
+    # Keep only the first line of each candidate and trim surrounding punctuation.
     _pred = []
     for ans in pred:
         ans = ans.strip().split("\n")[0]
@@ -38,118 +75,121 @@ def extract_answer(pred_str, exhaust=False):
     else:
         return _pred[-1] if _pred else ""
 
+
 def strip_string(string):
+    """Normalize an answer string to a canonical form for Exact-Match comparison.
+
+    Applies a long sequence of LaTeX/format rewrites so that visually different but
+    mathematically equivalent answers map to the same string (e.g. ``\\dfrac`` -> ``frac``,
+    ``\\sqrt2`` -> ``\\sqrt{2}``, stripped units/degrees/currency, normalized fractions and
+    trailing zeros). Returns the normalized string.
+    """
     string = str(string).strip()
-    # linebreaks
+    # Drop line breaks.
     string = string.replace("\n", "")
 
-    # right "."
+    # Trailing period.
     string = string.rstrip(".")
 
-    # remove inverse spaces
+    # Remove inverse (negative) spacing.
     string = string.replace("\\!", "")
-    # string = string.replace("\\ ", "")
 
-    # replace \\ with \
-    # string = string.replace("\\\\", "\\")
-    # string = string.replace("\\\\", "\\")
-
+    # Unwrap a whole-string \text{...} wrapper.
     if string.startswith("\\text{") and string.endswith("}"):
         string = string.split("{", 1)[1][:-1]
 
-    # replace tfrac and dfrac with frac
+    # Canonicalize fraction macros to \frac.
     string = string.replace("tfrac", "frac")
     string = string.replace("dfrac", "frac")
     string = string.replace("cfrac", "frac")
 
-    # remove \left and \right
+    # Drop \left and \right delimiters.
     string = string.replace("\\left", "")
     string = string.replace("\\right", "")
 
-    # Remove unit: miles, dollars if after is not none
+    # Remove a trailing \text{...} unit (e.g. miles, dollars) if it leaves a non-empty answer.
     _string = re.sub(r"\\text{.*?}$", "", string).strip()
     if _string != "" and _string != string:
-        # print("Warning: unit not removed: '{}' -> '{}'".format(string, _string))
         string = _string
 
-    # Remove circ (degrees)
+    # Remove degree symbols.
     string = string.replace("^{\\circ}", "").strip()
     string = string.replace("^\\circ", "").strip()
 
+    # Remove trailing units: (c|m)m optionally squared/cubed, p.m., and a trailing "t".
     string = regex.sub(r"\{(c|m)?m\}(\^(2|3))?", "", string).strip()
     string = regex.sub(r"p\.m\.$", "", string).strip()
     string = regex.sub(r"(\d)\s*t$", r"\1", string).strip()
 
-    # remove dollar signs
+    # Remove dollar signs.
     string = string.replace("\\$", "")
     string = string.replace("$", "")
 
-    # string = string.replace("\\text", "")
+    # Drop a leading "x\in" qualifier.
     string = string.replace("x\\in", "")
 
-    # remove percentage
+    # Normalize escaped percent signs (percent itself is intentionally preserved).
     string = string.replace("\\%", "%")
     string = string.replace("\\%", "%")
-    # string = string.replace("%", "")
 
-    # " 0." equivalent to " ." and "{0." equivalent to "{." Alternatively, add "0" if "." is the start of the string
+    # Add a leading zero to bare decimals (" .5" -> " 0.5", "{.5" -> "{0.5").
     string = string.replace(" .", " 0.")
     string = string.replace("{.", "{0.")
 
-    # cdot
+    # Drop multiplication dots.
     string = string.replace("\\cdot", "")
 
-    # inf
+    # Canonicalize infinity spellings.
     string = string.replace("infinity", "\\infty")
     if "\\infty" not in string:
         string = string.replace("inf", "\\infty")
     string = string.replace("+\\inity", "\\infty")
 
-    # and
-    # string = string.replace("and", "")
+    # Drop font macros.
     string = string.replace("\\mathbf", "")
     string = string.replace("\\mathrm", "")
 
-    # use regex to remove \mbox{...}
+    # Remove \mbox{...}.
     string = re.sub(r"\\mbox{.*?}", "", string)
 
-    # quote
+    # (No-ops in the original: quote stripping is not assigned back; preserved as-is.)
     string.replace("'", "")
     string.replace('"', "")
 
-    # i, j
+    # Treat a lone imaginary unit "j" as "i".
     if "j" in string and "i" not in string:
         string = string.replace("j", "i")
 
-    # replace a.000b where b is not number or b is end, with ab, use regex
+    # Collapse "a.000b" -> "ab" and "a.000" -> "a" (strip redundant zero decimals).
     string = re.sub(r"(\d+)\.0+([^\d])", r"\1\2", string)
     string = re.sub(r"(\d+)\.0+$", r"\1", string)
 
-    # if empty, return empty string
+    # Empty -> return as-is; leading "." -> prepend "0".
     if len(string) == 0:
         return string
     if string[0] == ".":
         string = "0" + string
 
-    # to consider: get rid of e.g. "k = " or "q = " at beginning
-    # if len(string.split("=")) == 2:
-    #     if len(string.split("=")[0]) <= 2:
-    #         string = string.split("=")[1]
-
+    # Structural fixes: roots, tangents, whitespace, fractions, and a/b -> \frac.
     string = _fix_sqrt(string)
     string = _fix_tan(string)
     string = string.replace(" ", "")
 
-    # \frac1b or \frac12 --> \frac{1}{b} and \frac{1}{2}, etc. Even works with \frac1{72} (but not \frac{72}1). Also does a/b --> \\frac{a}{b}
     string = _fix_fracs(string)
-
-    # NOTE: X/Y changed to \frac{X}{Y} in dataset, but in simple cases fix in case the model output is X/Y
     string = _fix_a_slash_b(string)
 
+    # Trim trailing backslashes / commas / periods.
     string = regex.sub(r"(\\|,|\.)+$", "", string)
 
     return string
+
+
 def _fix_fracs(string):
+    """Rewrite shorthand fractions into ``\\frac{...}{...}`` (e.g. ``\\frac12`` -> ``\\frac{1}{2}``).
+
+    Handles forms like ``\\frac1b``, ``\\frac12``, and ``\\frac1{72}``. Returns the input
+    unchanged if a fragment cannot be parsed.
+    """
     substrs = string.split("\\frac")
     new_str = substrs[0]
     if len(substrs) > 1:
@@ -182,6 +222,10 @@ def _fix_fracs(string):
 
 
 def _fix_a_slash_b(string):
+    """Rewrite a simple ``a/b`` into ``\\frac{a}{b}`` when both parts are integers (or sqrt).
+
+    Returns the input unchanged if it is not a single ``a/b`` of the expected form.
+    """
     if len(string.split("/")) != 2:
         return string
     a = string.split("/")[0]
@@ -199,12 +243,14 @@ def _fix_a_slash_b(string):
 
 
 def _fix_sqrt(string):
+    """Brace bare square-root arguments: ``\\sqrt2`` / ``\\sqrt 2`` -> ``\\sqrt{2}``."""
     _string = re.sub(r"\\sqrt(-?[0-9.a-zA-Z]+)", r"\\sqrt{\1}", string)
     _string = re.sub(r"\\sqrt\s+(\w+)$", r"\\sqrt{\1}", _string)
     return _string
 
 
 def _fix_tan(string):
+    """Brace bare tangent arguments: ``\\tan30`` / ``\\tan 30`` -> ``\\tan{30}``."""
     _string = re.sub(r"\\tan(-?[0-9.a-zA-Z]+)", r"\\tan{\1}", string)
     _string = re.sub(r"\\tan\s+(\w+)$", r"\\tan{\1}", _string)
     return _string
