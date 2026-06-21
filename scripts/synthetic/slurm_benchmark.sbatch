@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
-#SBATCH -A naiss2025-22-1453
-#SBATCH -p alvis
+#SBATCH -A <PROJECT_ACCOUNT>
+#SBATCH -p <PARTITION>
 #SBATCH -C NOGPU
 #SBATCH -N 1
 #SBATCH --cpus-per-task=1
 #SBATCH -t 1-00:00:00
-#SBATCH -J plot_metrics
-#SBATCH -o /mimer/NOBACKUP/groups/naiss2024-22-1645/Paper_HGIFA/logs/%x_%j.out
-#SBATCH -e /mimer/NOBACKUP/groups/naiss2024-22-1645/Paper_HGIFA/logs/%x_%j.err
+#SBATCH -J synthetic_benchmark
+#SBATCH -o logs/%x_%j.out
+#SBATCH -e logs/%x_%j.err
 
 set -euo pipefail
 
-REPO="/mimer/NOBACKUP/groups/naiss2024-22-1645/Paper_HGIFA"
-WORKDIR="$REPO/Paper_HGIFA"
+# Root of the checkout. Override by exporting REPO before submitting,
+# otherwise it defaults to the directory you submit from.
+REPO="${REPO:-$PWD}"
+WORKDIR="$REPO"
 VENV="$REPO/.venv"
 
 mkdir -p "$REPO/logs" "$REPO/outputs" "$REPO/.cache/huggingface"
@@ -34,7 +36,7 @@ export MKL_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export OPENBLAS_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 export NUMEXPR_NUM_THREADS="${SLURM_CPUS_PER_TASK:-1}"
 
-# optional to keep:
+# CPU-only run: hide any GPUs.
 export CUDA_VISIBLE_DEVICES=""
 
 python -u -m gica.synthetic.benchmark
