@@ -5,6 +5,3 @@ __pycache__/
 venv/
 .env
 plots/
-GenPRM/
-commands
-EOF
