@@ -1,3 +1,18 @@
+"""
+run_top1.py
+===========
+
+Top-1 reference for the TTS pipeline.
+
+For each question it takes the first candidate path, extracts and normalizes its final
+answer, and scores it by Exact-Match. This is a verifier-free lower reference (no path
+selection at all) alongside majority-vote and the upper-bound Best-of-M.
+
+Run from the repository root (dataset path hardcoded to MATH-500 via the DeepSeekMath
+generator)::
+
+    python scripts/tts/run_top1.py
+"""
 
 import os
 import sys
@@ -7,8 +22,8 @@ import numpy as np
 import regex
 import re
 from gica.tts.answer_extraction import strip_string
-#genprm = GenPRM('GenPRM/GenPRM-1.5B', tensor_parallel_size=1)
 
+# Unused leftover from an earlier GenPRM-based critique approach (kept; not referenced).
 messages = [ 
 	{ "content": "You are a math teacher. Your task is to review and critique the paragraphs in solution step by step.", "role": "system" }, 
 	{ "role": "user", "content": "Question: What numeral is in the 100th decimal place in the decimal representation of $\\frac{6}{7}$?\n\nTo find the numeral in the 100th decimal place of $\\frac{6}{7}$, we first need to determine the decimal representation of $\\frac{6}{7}$." }, 
@@ -28,11 +43,8 @@ messages = [
 	{ "role": "user", "content": "The remainder of 4 indicates that the 100th decimal place is the same as the 4th digit in the repeating block, which is 10.\n\nAnswer: \\boxed{10}" },
 	{ "role": 'assistant', 'content': ''},
 ]
-
-
 code_executor = CodeExecutor()
 reward_list = []
-
 with open("data/Deepseek-Math-RL-7B.json") as f:
 	data = json.load(f)	
 exact_match =0
@@ -40,10 +52,7 @@ mismatches=0
 for idx in range(len(data["answer"])):
 	prompt = data["prompt"][idx]
 	path_scores = []
-# 	for index, path in enumerate(data["completion"][idx][:2]):
-# 		messages = [{ "content": "You are a math teacher. Your task is to review and critique the paragraphs in solution step by step.", "role": "system" }, 
-# ]
-# 		steps = path.split(".\n")
+	# Top-1: take the first candidate path and normalize its final answer.
 	winning_path = data["completion"][idx][0].lower()
 	winning_path = winning_path.replace("\n", "")
 	winning_path = winning_path.lower().split("the answer is:")[-1]
