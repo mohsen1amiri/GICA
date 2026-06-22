@@ -1,3 +1,23 @@
+"""
+run_gica_topm_thinkprm7b.py
+===========================
+
+GICA driver variant using the larger ThinkPRM-7B verifier (Appendix C.2 robustness
+ablation / Figure 5). CLI-driven (dataset path and name), it re-ranks the certified top-5
+shortlist by mean step-labels before grading.
+
+For each question it builds a :class:`PRMEnvironment`, runs GICA's top-5 identification loop
+against the ThinkPRM oracle, selects the winner from the shortlist, and scores it by
+Exact-Match. Per-question verifier-call counts and timings are written to a CSV. This
+variant also uses a slightly relaxed patience rule (stop when the shortlist has recurred
+among the last few rounds).
+
+Run from the repository root, e.g.::
+
+    python scripts/tts/run_gica_topm_thinkprm7b.py \\
+        --file_path data/Deepseek-MathOdyssey-RL-7B.json --dataset_name MathOdyssey
+"""
+
 import numpy as np
 import json
 from collections import defaultdict
@@ -16,12 +36,18 @@ from gica.tts.verifier import ThinkPRM
 from gica.tts.selection.gica import GICA
 from gica.tts.answer_extraction import strip_string
 
-def compute_em_from_top_m(question, paths, answers, q_idx, top_m):
 
+def compute_em_from_top_m(question, paths, answers, q_idx, top_m):
+    """Re-rank the shortlist by mean step-labels, extract the winner, and return its EM.
+
+    Each path in ``top_m`` is re-scored by the mean of ThinkPRM's per-step labels; the
+    highest-scoring path wins. Its final answer is parsed (handling "the answer is" /
+    "the final answer is" and ``\\boxed{...}``), normalized via ``strip_string``, and
+    compared to the ground truth.
+    """
     # -------------------------
     # Select winning path
     # -------------------------
-    #winning_pid = top_m[0]
     scores_prefix = []
     for pid in top_m:
         path =  paths[pid]
@@ -48,7 +74,7 @@ def compute_em_from_top_m(question, paths, answers, q_idx, top_m):
     if "\\boxed" in winning_path:
         winning_path = winning_path.replace("\\boxed{","")
         k = winning_path.rfind("}")
-        winning_path = winning_path[:k] #+ "" + winning_path[k+1:]
+        winning_path = winning_path[:k]
     pred = strip_string(winning_path.replace("$", ""))
 
     # -------------------------
@@ -61,9 +87,10 @@ def compute_em_from_top_m(question, paths, answers, q_idx, top_m):
     em = int(pred.strip().lower() == gt.strip().lower())
 
     return em
-    
+
+
 # ---------------------------
-# Models
+# Models (loaded once at import; require a GPU + vLLM)
 # ---------------------------
 prm = ThinkPRM(
     model_name_or_path="launch/ThinkPRM-7B",
@@ -79,6 +106,11 @@ embedder = SentenceTransformer("all-MiniLM-L6-v2",device="cuda")
 # PRM Environment
 # ---------------------------
 class PRMEnvironment:
+    """Turns a question and its candidate paths into a step-level bandit instance.
+
+    Splits each path into steps (on ``".\\n"``), embeds them, and exposes
+    :meth:`oracle_callback` (the ThinkPRM bridge) plus the step feature matrix used by GICA.
+    """
 
     def __init__(self, question, paths):
 
@@ -89,10 +121,11 @@ class PRMEnvironment:
 
         self.step_texts = []
 
+        # Split every path into steps; record step<->path membership.
         sid = 0
         for pid, path in enumerate(paths):
 
-            steps = path.split(".\n") #path.split("\n") if len(s.strip()) > 0]
+            steps = path.split(".\n")
             self.paths[pid] = []
 
             for step in steps:
@@ -102,7 +135,8 @@ class PRMEnvironment:
         for pid, ids in self.paths.items():
             for sid in ids:
                 self.step_to_path[sid] = pid
-        # embeddings
+
+        # Step / question embeddings and the global step centroid.
         self.step_emb = embedder.encode(self.step_texts, normalize_embeddings=True)
         self.q_emb = embedder.encode([question], normalize_embeddings=True)[0]
 
@@ -111,48 +145,19 @@ class PRMEnvironment:
 
         self.feature_matrix = self.build_features()
 
-
-# def build_features(self):
-
-#     feats = []
-#     emb = self.step_emb[step_ids]
-#     for i, e in enumerate(self.step_emb):
-
-#         pid = self.step_to_path[i]
-#         path_ids = self.paths[pid]
-#         pos_idx = path_ids.index(i)
-
-#         # -----------------------------
-#         # TERM-LEVEL PROJECTIONS
-#         # -----------------------------
-#         sim_q_vec = self.q_tok_emb @ e
-#         sim_path_vec = self.path_tok_emb @ e
-#         sim_global_vec = self.global_tok_emb @ e
-
-#         pos_norm = pos_idx / max(1, len(path_ids))
-
-#         feat_vec = np.concatenate([
-#             sim_q_vec,
-#             sim_path_vec,
-#             sim_global_vec,
-#             np.array([pos_norm, 1.0])
-#         ])
-
-#         feats.append(feat_vec)
-
-#     feats = np.array(feats, dtype=np.float32)
-
-#     # VERY IMPORTANT: column scaling only
-#     feats = feats / (np.std(feats, axis=0, keepdims=True) + 1e-6)
-
-#     return feats
     def build_features(self):
+        """Build the per-step feature matrix.
 
+        Each step's feature is the 6-vector
+        ``[cos(step, question), cos(step, path-centroid), cos(step, global-centroid),
+        position-fraction, bias=1, boundary-placeholder=0]``. The final slot is reserved
+        for the dynamic boundary feature written by GICA. (Additional candidate features
+        were explored but are disabled, and the optional column normalization is left off.)
+        """
         feats = []
 
-        # --- Precompute path centroids ---
+        # Precompute the per-path centroid in embedding space.
         path_centroids = {}
-        # path_dispersion = {}
 
         for pid, step_ids in self.paths.items():
 
@@ -162,26 +167,16 @@ class PRMEnvironment:
             centroid /= np.linalg.norm(centroid) + 1e-8
             path_centroids[pid] = centroid
 
-        #     dists = np.linalg.norm(emb - centroid, axis=1)
-        #     path_dispersion[pid] = float(np.mean(dists))
-
-        # --- Build base features ---
+        # Build the base feature for each step.
         for i, e in enumerate(self.step_emb):
 
             pid = self.step_to_path[i]
             path_ids = self.paths[pid]
             pos_idx = path_ids.index(i)
-           # print("emb",e.shape,path_centroids[pid].shape,self.global_centroid.shape)
+
             cos_q = cosine_similarity(e.reshape(1,-1) , self.q_emb.reshape(1,-1))[0][0]
             cos_path = cosine_similarity(e.reshape(1,-1) , path_centroids[pid].reshape(1,-1))[0][0]
             cos_global = cosine_similarity(e.reshape(1,-1) , self.global_centroid.reshape(1,-1))[0][0]
-            #print("cos_q",cos_q)
-            # prefix_ids = path_ids[:pos_idx + 1]
-            # prefix_emb = self.step_emb[prefix_ids]
-
-            # prefix_centroid = np.mean(prefix_emb, axis=0)
-            # prefix_centroid /= np.linalg.norm(prefix_centroid) + 1e-8
-            # cos_prefix = float(e @ prefix_centroid)
 
             if pos_idx > 0:
                 prev_e = self.step_emb[path_ids[pos_idx - 1]]
@@ -191,30 +186,23 @@ class PRMEnvironment:
 
             pos_norm = pos_idx / max(1, len(path_ids))
             length_norm = min(len(self.step_texts[i]) / 200.0, 1.0)
-           # dispersion = path_dispersion[pid]
-           # print("cos_q",cos_q,cos_path,cos_global)
-            # IMPORTANT: last slot reserved for dynamic boundary feature
+
+            # Last slot reserved for the dynamic boundary feature.
             feats.append([
                 cos_q,
                 cos_path,
                 cos_global,
-                # cos_prefix,
-                # cos_prev,
-                # dispersion,
                 pos_norm,
-               # length_norm,
                 1.0,   # bias
                 0.0    # boundary feature placeholder
             ])
-       # print("feats",feats)
 
         feats = np.array(feats)
 
-        #feats = feats / (np.std(feats, axis=0, keepdims=True) + 1e-8)
-      #  print("feats",feats)
         return feats
 
     def find_path(self, step_id):
+        """Return the path id that contains ``step_id``."""
         for pid, ids in self.paths.items():
             if step_id in ids:
                 return pid
@@ -223,7 +211,7 @@ class PRMEnvironment:
     # ThinkPRM Oracle
     # -----------------------------------
     def oracle_callback(self, step_idx):
-
+        """Score the within-path prefix up to ``step_idx`` and return ThinkPRM's prefix score."""
         pid = self.find_path(step_idx)
         pos = self.paths[pid].index(step_idx)
 
@@ -241,7 +229,13 @@ class PRMEnvironment:
 # Experiment Runner
 # ---------------------------
 def run_prm_experiment(question, paths, answers, q_idx):
+    """Run one question end-to-end with GICA (ThinkPRM-7B); return (EM, num_rounds).
 
+    Runs GICA's top-5 identification loop until it converges or a relaxed patience rule
+    fires: the patience counter advances when the shortlist repeats the previous round or
+    (after a few rounds) matches any of the last three shortlists, and the loop stops once
+    patience reaches 6.
+    """
     env = PRMEnvironment(question, paths)
 
     p_giha = GICA(
@@ -256,6 +250,7 @@ def run_prm_experiment(question, paths, answers, q_idx):
         S_0=1.0,
         step_pool_mode="paths",
     )
+    # Attach step embeddings for GICA's dynamic boundary feature and init the patience state.
     p_giha.env_step_emb = env.step_emb
     p_giha.patience = 0
     previous_J = None
@@ -270,7 +265,7 @@ def run_prm_experiment(question, paths, answers, q_idx):
             p_giha.patience=0
         previous_J = top_m
         previous_topms.append(top_m)
-        
+
         print(f"Iter {t} | Top paths: {top_m}", p_giha.patience)
         t+=1
 
@@ -312,7 +307,7 @@ if __name__ == "__main__":
         print("\n============================")
         print(f"QUESTION {idx1}")
         em, iterat = run_prm_experiment(
-            data["prompt"][idx1],#.replace("Please reason step by step, and put your final answer within \\boxed{}",""),
+            data["prompt"][idx1],
             data["completion"][idx1],
             data["answer"],
             idx1
