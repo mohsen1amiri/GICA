@@ -4,8 +4,8 @@ orm.py
 
 Outcome Reward Model (ORM) scorers for the TTS pipeline.
 
-An ORM assigns ONE scalar score to a *complete* candidate solution
-contrast against process-level verification.
+An ORM assigns ONE scalar score to a *complete* candidate solution, in contrast
+to process-level verification, which scores every intermediate step.
 """
 
 from typing import List, Tuple

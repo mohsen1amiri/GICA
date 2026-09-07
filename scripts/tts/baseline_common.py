@@ -1,5 +1,23 @@
 """
 baseline_common.py
+==================
+
+Shared helpers for the ORM drivers (``run_orm_rerank_v2.py`` and
+``run_orm_prm_cascade.py``). It exists so those two scripts grade with exactly
+the same rules as the reference drivers rather than with a second, subtly
+different implementation:
+
+- ``grade_path_best_of_m`` is the winning-path EM rule of ``run_best_of_m.py``;
+- ``self_con`` / ``self_con_answer`` are the normalization and tally of
+  ``run_majority_vote.py`` (kept verbatim, ``\boxed`` handling included, so the
+  numbers stay comparable), and ``weighted_self_con`` is their score-weighted
+  variant used for the ORM/PRM-weighted vote;
+- ``load_dataset`` reads the ``data/`` JSON schema (parallel ``prompt`` /
+  ``completion`` / ``answer`` lists) and truncates it to ``--data_limit``;
+- the remaining helpers write the per-question CSV / JSON outputs.
+
+This module is imported by path (the drivers put their own directory on
+``sys.path``), so it is not part of the installable ``gica`` package.
 """
 
 import csv

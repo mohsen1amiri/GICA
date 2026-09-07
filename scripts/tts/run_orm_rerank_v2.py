@@ -1,20 +1,34 @@
 """
-run_orm_rerank.py
-=================
+run_orm_rerank_v2.py
+====================
 
-ORM-based reranking baseline: score every COMPLETE candidate path once with an
-outcome-level verifier (no step-level verification), then select the answer by
+ORM-based reranking baseline (the "ORM" row of Table 1): score every COMPLETE
+candidate path once with an outcome-level verifier (no step-level verification),
+then select the answer by (a) argmax of the ORM score and (b) an ORM-weighted
+vote over the normalized answers. Both EM variants are reported.
+
+Cost is M outcome-level calls per question, against M step-level calls for
+exhaustive Best-of-M.
+
+Outputs: `orm_rerank_<backend>_<dataset>.csv` (per-question calls, generated
+tokens, time and both EM variants) and `orm_scores_<dataset>.json`, which
+`run_orm_prm_cascade.py --orm_scores ...` can reuse to skip its phase 1.
 
 Run from the repository root::
 
     # generative ORM (no new model; ThinkPRM-1.5B in outcome mode)
-    python scripts/tts/run_orm_rerank.py \
+    python scripts/tts/run_orm_rerank_v2.py \
         --file_path data/Deepseek-AIME-RL-7B.json --dataset_name AIME
 
     # discriminative ORM (any seq-classification reward model on HF)
-    python scripts/tts/run_orm_rerank.py \
+    python scripts/tts/run_orm_rerank_v2.py \
         --file_path data/Deepseek-AIME-RL-7B.json --dataset_name AIME \
         --orm_backend seqcls --orm_model <hf-reward-model-name>
+
+By default every question in --file_path is scored. Pass --index_file to
+restrict the run to a saved list of question indices instead (a JSON file
+holding {"ids": [...]}); earlier revisions of this script read such a list from
+a fixed cluster path.
 """
 
 import argparse
@@ -32,17 +46,30 @@ from baseline_common import (grade_answer_string, grade_path_best_of_m,
 
 def main():
     ap = argparse.ArgumentParser(description="ORM reranking baseline")
-    ap.add_argument("--file_path", type=str, required=True)
-    ap.add_argument("--dataset_name", type=str, default="dataset")
-    ap.add_argument("--data_limit", type=int, default=10**9)
+    ap.add_argument("--file_path", type=str, required=True,
+                    help="pre-generated-paths JSON under data/, e.g. "
+                         "data/Deepseek-AIME-RL-7B.json")
+    ap.add_argument("--dataset_name", type=str, default="dataset",
+                    help="short benchmark tag used in the output filenames, "
+                         "e.g. Math500, MathOdyssey, AIME")
+    ap.add_argument("--data_limit", type=int, default=10**9,
+                    help="use only the first N questions (default: all)")
+    ap.add_argument("--index_file", type=str, default=None,
+                    help="optional JSON {\"ids\": [...]} restricting the run "
+                         "to those question indices (default: every question)")
     ap.add_argument("--orm_backend", type=str, default="thinkprm",
-                    choices=["thinkprm", "seqcls", "rlhflow"])
+                    choices=["thinkprm", "seqcls", "rlhflow"],
+                    help="thinkprm reuses --prm_model in outcome mode (no "
+                         "extra weights); seqcls/rlhflow load the separate HF "
+                         "reward model given by --orm_model")
     ap.add_argument("--orm_model", type=str, default=None,
-                    help="HF reward-model name (seqcls backend only)")
+                    help="HF reward-model name (seqcls / rlhflow backends only)")
     ap.add_argument("--prm_model", type=str, default="launch/ThinkPRM-1.5B",
                     help="verifier used by the thinkprm outcome backend")
-    ap.add_argument("--max_length", type=int, default=4096)
-    ap.add_argument("--batch_size", type=int, default=64)
+    ap.add_argument("--max_length", type=int, default=4096,
+                    help="verifier / reward-model context length")
+    ap.add_argument("--batch_size", type=int, default=64,
+                    help="paths scored per ORM call")
     args = ap.parse_args()
 
     data = load_dataset(args.file_path, args.data_limit)
@@ -67,10 +94,12 @@ def main():
     rows, times = [], []
     all_scores = {"qid": [], "orm_scores": []}
     done = 0
-    with open("/mimer/NOBACKUP/groups/naiss2025-5-631/gica_repo/GICA/data/data/math-500-idx.json") as f:
-        ids = json.load(f)
-    for q_idx in ids["ids"]:
-    #for q_idx in range(data["n_questions"]):
+    if args.index_file:
+        with open(args.index_file) as f:
+            q_indices = json.load(f)["ids"]
+    else:
+        q_indices = range(data["n_questions"])
+    for q_idx in q_indices:
         t0 = time.time()
         question = data["prompt"][q_idx]
         paths = data["completion"][q_idx][:100]
@@ -101,9 +130,8 @@ def main():
         # checkpoint scores every question (cheap; enables cascade reuse)
         save_json(f"orm_scores_{args.dataset_name}.json", all_scores)
 
-    n = data["n_questions"]
-    print(f"\nFinal ORM rerank EM (argmax)        : {em_argmax/n:.4f}")
-    print(f"Final ORM rerank EM (weighted vote) : {em_wvote/n:.4f}")
+    print(f"\nFinal ORM rerank EM (argmax)        : {em_argmax/done:.4f}")
+    print(f"Final ORM rerank EM (weighted vote) : {em_wvote/done:.4f}")
     print(f"ORM calls/question = M = {len(data['completion'][0])}, "
           f"time/question = {mean(times):.1f} +/- "
           f"{(stdev(times) if len(times) > 1 else 0):.1f}s")

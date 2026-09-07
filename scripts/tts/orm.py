@@ -3,6 +3,13 @@ orm.py
 ======
 
 Outcome Reward Model (ORM) scorers for the TTS pipeline.
+
+An ORM assigns ONE scalar score to a *complete* candidate solution, in contrast
+to process-level verification, which scores every intermediate step.
+
+NOTE: this is a stand-alone copy kept next to the drivers. The ORM drivers
+import the packaged module instead (``from gica.tts.verifier.orm import
+build_orm``), so edits made here have no effect on a run.
 """
 
 from typing import List, Tuple
