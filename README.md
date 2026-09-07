@@ -618,6 +618,15 @@ For the baseline driver, `--baseline_name ∈ {CASE, GIFA, lingape}`.
 python scripts/tts/run_best_of_m.py        # set the data path to Deepseek-MathOdyssey-RL-7B.json
 python scripts/tts/run_top1.py             # set the data path to Deepseek-MathOdyssey-RL-7B.json
 
+# For ORm and ORM-PRM cascade baselines
+# Run PRM only baseline first
+python scripts/tts/run_orm_rerank_v2.py \
+    --file_path data/data/Deepseek-Math-RL-7B.json --dataset_name Math500 \
+    --orm_backend seqcls --orm_model RLHFlow/Llama3.1-8B-ORM-Deepseek-Data
+
+# Then Run ORM-PRM cascade baselines
+python scripts/tts/run_orm_prm_cascade.py --file_path data/Deepseek-Math-RL-7B.json         --dataset_name Deepseek-Math         --orm_scores orm_scores_Math500.json    --cascade_top_c 20
+
 # 2) GICA
 python scripts/tts/run_gica.py             # already points at Deepseek-MathOdyssey-RL-7B.json
 
