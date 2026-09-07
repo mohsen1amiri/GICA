@@ -322,13 +322,13 @@ def run_prm_experiment(question, paths, answers, q_idx, baseline_name):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Linear Top-m identification Bandit Algorithms ')
     parser.add_argument('--baseline_name', type=str, 
-                    help='baseline namee: lingape or CASE')
+                    help='baseline name: CASE, GIFA (LinGIFA), or lingape (m-LinGapE); anything else falls through to m-LinGapE')
     parser.add_argument('--file_path', type=str, 
                     help='dataset file path: example: ./data/Deepseek-MathOdyssey-RL-7B.json')
     parser.add_argument('--dataset_name', type=str, 
-                    help='dataset file path: example: Mathodyssey, AIME')
+                    help='benchmark tag used in the output CSV name: example: MathOdyssey, AIME')
     parser.add_argument('--data_limit', type=str, 
-                    help='dataset file path: example - give number of samples like 100, 400 or so')
+                    help='number of questions to run: example - give number of samples like 100, 400 or so')
     args = parser.parse_args()
     times = []
 

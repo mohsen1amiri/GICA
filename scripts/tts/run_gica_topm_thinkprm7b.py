@@ -2,8 +2,8 @@
 run_gica_topm_thinkprm7b.py
 ===========================
 
-GICA driver variant using the larger ThinkPRM-7B verifier (Appendix C.2 robustness
-ablation / Figure 5). CLI-driven (dataset path and name), it re-ranks the certified top-5
+GICA driver variant using the larger ThinkPRM-7B verifier (Appendix C.1 verifier-scale
+ablation: Table 5 / Figure 5). CLI-driven (dataset path and name), it re-ranks the certified top-5
 shortlist by mean step-labels before grading.
 
 For each question it builds a :class:`PRMEnvironment`, runs GICA's top-5 identification loop
@@ -292,7 +292,7 @@ if __name__ == "__main__":
     parser.add_argument('--file_path', type=str, 
                     help='dataset file path: example: ./data/Deepseek-MathOdyssey-RL-7B.json')
     parser.add_argument('--dataset_name', type=str, 
-                    help='dataset file path: example: Mathodyssey, AIME')
+                    help='benchmark tag used in the output CSV name: example: MathOdyssey, AIME')
     times = []
     args = parser.parse_args()
 

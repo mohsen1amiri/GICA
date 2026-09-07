@@ -43,7 +43,6 @@ messages = [
 	{ "role": "user", "content": "The remainder of 4 indicates that the 100th decimal place is the same as the 4th digit in the repeating block, which is 10.\n\nAnswer: \\boxed{10}" },
 	{ "role": 'assistant', 'content': ''},
 ]
-code_executor = CodeExecutor()
 reward_list = []
 with open("data/Deepseek-Math-RL-7B.json") as f:
 	data = json.load(f)	

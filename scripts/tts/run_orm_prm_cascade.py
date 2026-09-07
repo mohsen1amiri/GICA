@@ -2,18 +2,27 @@
 run_orm_prm_cascade.py
 ======================
 
-ORM -> PRM cascaded pipeline a cheap
+ORM -> PRM cascaded pipeline (the "ORM-PRM cascade" row of Table 1): a cheap
 outcome-level ORM first scores ALL M complete paths, then expensive step-level
 ThinkPRM verification is applied ONLY to the top-C shortlist, whose winner is
 chosen exactly like `run_best_of_m.py` (argmax of mean step labels; a
 PRM-weighted vote over the shortlist is also reported).
+
+Cost per question is M ORM calls + C step-level PRM calls, versus M step-level
+PRM calls for exhaustive Best-of-M. The paper's Table 1 cascade uses C = 20.
+
+Outputs: `cascade_<backend>_top<C>_<dataset>.csv` with the per-question ORM/PRM
+call counts, timings and both EM variants; phase 1 also caches its scores to
+`orm_scores_<dataset>.json` so a later run can skip it via `--orm_scores`.
+
+Run from the repository root, e.g.::
 
     # self-contained (generative ORM = ThinkPRM outcome mode)
     python scripts/tts/run_orm_prm_cascade.py \
         --file_path data/Deepseek-AIME-RL-7B.json --dataset_name AIME \
         --cascade_top_c 5
 
-    # reuse scores from run_orm_rerank.py (skips phase 1 entirely)
+    # reuse scores from run_orm_rerank_v2.py (skips phase 1 entirely)
     python scripts/tts/run_orm_prm_cascade.py \
         --file_path data/Deepseek-AIME-RL-7B.json --dataset_name AIME \
         --orm_scores orm_scores_AIME.json --cascade_top_c 5
@@ -28,7 +37,6 @@ import argparse
 import os
 import sys
 import time
-import json
 from statistics import mean, stdev
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -48,40 +56,49 @@ def label_mean(res):
 
 def main():
     ap = argparse.ArgumentParser(description="ORM->PRM cascade baseline")
-    ap.add_argument("--file_path", type=str, required=True)
-    ap.add_argument("--dataset_name", type=str, default="dataset")
-    ap.add_argument("--data_limit", type=int, default=10**9)
+    ap.add_argument("--file_path", type=str, required=True,
+                    help="pre-generated-paths JSON under data/, e.g. "
+                         "data/Deepseek-MathOdyssey-RL-7B.json")
+    ap.add_argument("--dataset_name", type=str, default="dataset",
+                    help="short benchmark tag used in the output filenames, "
+                         "e.g. Math500, MathOdyssey, AIME")
+    ap.add_argument("--data_limit", type=int, default=10**9,
+                    help="use only the first N questions (default: all)")
     ap.add_argument("--cascade_top_c", type=int, default=5,
                     help="shortlist size passed to step-level verification "
-                         "(default 5 = GICA's K)")
+                         "(default 5 = GICA's K; the paper's Table 1 cascade "
+                         "uses 20)")
     ap.add_argument("--orm_scores", type=str, default=None,
-                    help="orm_scores_<dataset>.json from run_orm_rerank.py; "
+                    help="orm_scores_<dataset>.json from run_orm_rerank_v2.py; "
                          "if given, phase 1 is skipped")
     ap.add_argument("--orm_backend", type=str, default="thinkprm",
-                    choices=["thinkprm", "seqcls", "rlhflow"])
-    ap.add_argument("--orm_model", type=str, default=None)
-    ap.add_argument("--prm_model", type=str, default="launch/ThinkPRM-1.5B")
-    ap.add_argument("--max_length", type=int, default=4096)
-    ap.add_argument("--batch_size", type=int, default=64)
+                    choices=["thinkprm", "seqcls", "rlhflow"],
+                    help="phase-1 scorer: thinkprm reuses --prm_model in "
+                         "outcome mode (no extra weights); seqcls/rlhflow load "
+                         "the separate HF reward model given by --orm_model")
+    ap.add_argument("--orm_model", type=str, default=None,
+                    help="HF reward-model name (seqcls / rlhflow backends only)")
+    ap.add_argument("--prm_model", type=str, default="launch/ThinkPRM-1.5B",
+                    help="step-level verifier used in phase 2 (and in phase 1 "
+                         "for the thinkprm backend)")
+    ap.add_argument("--max_length", type=int, default=4096,
+                    help="verifier context length")
+    ap.add_argument("--batch_size", type=int, default=64,
+                    help="paths scored per ORM call in phase 1")
     args = ap.parse_args()
 
     data = load_dataset(args.file_path, args.data_limit)
-    with open("/mimer/NOBACKUP/groups/naiss2025-5-631/gica_repo/GICA/data/data/math-500-idx.json") as f:
-        ids = json.load(f)
     n_q = data["n_questions"]
 
     # ==================================================================
     # PHASE 1 — outcome-level scores for every path of every question
     # ==================================================================
-    #orm_times = [0.0] * len(ids["ids"])
     orm_times = [0.0] * n_q
     cached = load_json_if_exists(args.orm_scores)
     prm = None  # the vLLM engine, created lazily
 
     if cached is not None:
         score_by_qid = dict(zip(cached["qid"], cached["orm_scores"]))
-        #orm_scores = [score_by_qid[q] for q in ids["ids"]]
-
         orm_scores = [score_by_qid[q] for q in range(n_q)]
         print(f"[phase 1] loaded cached ORM scores from {args.orm_scores}")
     else:
@@ -121,7 +138,6 @@ def main():
     em_argmax = em_wvote = 0
     rows, times = [], []
     tracker = 0
-    #for q_idx in ids["ids"]:
     for q_idx in range(n_q):
         t0 = time.time()
         question = data["prompt"][q_idx]
@@ -162,7 +178,7 @@ def main():
         em_wvote += hit_w
         tracker+=1
         rows.append([q_idx, len(paths), len(shortlist), gen_tokens,
-                     round(orm_times[tracker], 3), round(dt, 3), hit_a, hit_w])
+                     round(orm_times[q_idx], 3), round(dt, 3), hit_a, hit_w])
         
         print(f"[phase 2][q{q_idx}] orm_calls={len(paths)} "
               f"prm_calls={len(shortlist)} gen_toks={gen_tokens} "
