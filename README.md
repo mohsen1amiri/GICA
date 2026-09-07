@@ -1,4 +1,11 @@
-# GICA — The Gap-Index Compositional Arm Framework for Sample-Efficient Test-Time Scaling
+
+<p align="center">
+  <img src="gica_logo_horizontal (1).png" width="480" alt="ReformIR logo">
+</p>
+
+<h1 align="center">GICA</h1>
+<p align="center"><b> The Gap-Index Compositional Arm Framework for Sample-Efficient Test-Time Scaling</b></p>
+
 
 > Reference implementation and reproduction package for the paper
 > **“GICA: The Gap-Index Compositional Arm Framework for Sample-Efficient Test-Time Scaling.”**
