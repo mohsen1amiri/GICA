@@ -61,6 +61,7 @@ The conventions are worth knowing when cross-referencing the paper:
 ```text
 GICA/
 ├── README.md                         # this file
+├── APPENDIX_EXPERIMENTS.md           # how the appendix figures/tables are produced
 ├── pyproject.toml                    # installable package definition (provides `import gica`)
 ├── requirements-synthetic.txt        # Track-1 dependencies (CPU: numpy/scipy/matplotlib)
 ├── requirements-tts.txt              # Track-2 dependencies (GPU: vLLM/transformers/…)
@@ -203,9 +204,8 @@ download automatically on first use via Hugging Face):
 
 The TTS experiments consume **pre-generated candidate reasoning paths** (not raw benchmarks).
 
-> **Please download the JSON data from**
-> **https://osf.io/v7muk/overview?view_only=aa5acf15fbcd4d0db38d3f53f480dc52**
-> **and drop the files into the `data/` folder.**
+> **Please download the JSON data from** **https://osf.io/v7muk/**
+> **and unzip `data.zip` at the repository root so its contents land in `data/`.**
 
 See [`data/README.md`](data/README.md) for the expected filenames and the JSON schema. In short,
 each file provides, per question, the `prompt`, a list of `M = 100` candidate `completion` paths,
@@ -445,7 +445,7 @@ Every bandit driver embeds a small `PRMEnvironment` class that turns one questio
 
 In the GICA drivers the environment's `oracle_callback(step)` reconstructs the within-path prefix and calls the verifier, and this call is what counts as a **verifier call**. `run_baselines.py` is the path-arm adaptation, so its `oracle_callback(path)` instead scores a whole path and returns the mean of its step labels. Each driver also defines `compute_em_from_top_m`, which picks a winning path from the returned top-K, extracts and normalizes its answer, and computes Exact Match.
 
-**`run_gica.py`** is the main GICA driver. It instantiates `selection.gica.GICA` with ThinkPRM-1.5B as the verifier, loops over a benchmark file, runs the selection rule per question, and grades the output. Its winner rule takes the first path in the GICA shortlist directly.
+**`run_gica.py`** is the main GICA driver. It instantiates `selection.gica.GICA` with ThinkPRM-1.5B as the verifier, loops over a benchmark file, runs the selection rule per question, and grades the output. Its winner rule takes the first path in the GICA shortlist directly. Like the CLI drivers it writes a per-question `qid, iter, time, EM` CSV, so Figure 4 is assembled exactly like Figure 5.
 
 **`run_baselines.py`** runs the three bandit baselines through a shared harness. A `--baseline_name` argument selects CASE, GIFA (LinGIFA), or m-LinGapE, and a `--file_path` argument selects the dataset. Its winner rule re-scores each shortlisted path with the verifier and keeps the highest-scoring one. This driver is configured with ThinkPRM-7B in the repository.
 
@@ -594,53 +594,48 @@ When you are finished, leave the environment with `deactivate` (venv) or `conda 
 
 ---
 
-## 6. Reproducing the Paper
+## 6. Reproducing the Main Results
 
-All commands are run from the repository root with the gica environment active and (for the test-time-scaling experiments) the datasets present in data/. The test-time-scaling experiments below reproduce the paper's reported results.
+All commands run from the repository root with the `gica` environment active and, for the
+test-time-scaling experiments, the datasets present in `data/`.
 
-### 6.1 Synthetic sample efficiency (RQ1)
+This section covers the paper's **main results**: Figure 3 (synthetic sample efficiency, RQ1),
+Table 1 with Figure 4 (the TTS pipeline, RQ2/RQ3), and the ρ† sensitivity study of Section 4.5.
+The appendix figures and tables — the full Appendix B.1 parameter list, Table 5 and Figure 5,
+Figures 6–8 and Table 6 — are covered in
+[`APPENDIX_EXPERIMENTS.md`](APPENDIX_EXPERIMENTS.md).
 
-The synthetic study uses M ∈ {200, 500, 1000}, d = 8, K = 10, R = 0.1, path lengths uniform in {20,…,80}, averaged over seeds {0,…,9}, with hyperparameters λ=1.0, δ=0.01, ε=0.02, S₀=2.0.
+### 6.1 Figure 3 — synthetic sample efficiency (RQ1)
 
-1. Open `src/gica/synthetic/benchmark.py` and set, in the `__main__` block:
-   ```python
-   ENV_CFG = dict(num_paths=200, dim=8,
-                  noise_std=0.1, path_len_min=20, path_len_max=80, grid_gap=1e-3,
-                  top_k=10)   # binding boundary rank; must equal the algorithms' m
-   # set every ALG_* dict to a common (lambda_reg, delta, epsilon, R, S_0, K)
-   ```
-   The committed defaults differ (`num_paths=50`, `path_len_min/max=50/300`,
-   `grid_gap=1e-1`), so they must be replaced as above. Passing `top_k` matters:
-   omitted, it defaults to `M // 2` rather than the paper's `K = 10`. The environment
-   still accepts a legacy `num_total_steps` argument, but it is ignored.
-2. Run once per scale:
-   ```bash
-   python -m gica.synthetic.benchmark      # repeat with num_paths = 200, 500, 1000
-   ```
-3. Read the generated `plots/compare_*` figures: **(a)** gap-index comparisons,
-   **(b)** verifier calls, **(c)** runtime — as a function of `M`.
+The committed defaults in the `__main__` block of `src/gica/synthetic/benchmark.py` are the
+paper's Appendix B.1 configuration, so the benchmark reproduces the synthetic protocol as
+shipped. Run once per problem scale, editing only `ENV_CFG["num_paths"]` between runs:
 
-> All algorithms must share `(λ, δ, ε, R, S₀, K)` so that differences reflect the **sampling rule**
-> alone. Adjust the committed defaults in the __main__ block to the configuration you want to study.
+```bash
+python -m gica.synthetic.benchmark      # repeat with num_paths = 200, 500, 1000
+```
 
-### 6.2 Tables 1 & 5 and Figures 4–5 — TTS pipeline (RQ2/RQ3)
+Each run writes `plots/compare_*` figures. The three panels of Figure 3 are **(a)** gap-index
+comparisons, **(b)** verifier calls and **(c)** runtime, read as a function of `M`.
 
-Common settings (Appendix B.2): shortlist size `K = 5`, `δ = 0.05`, `λ = 1.0`,
-generators `DeepSeekMath-RL-7B` and `InternLM2-Math-Plus-7B`, `M = 100` paths per question.
+### 6.2 Table 1 and Figure 4 — TTS pipeline (RQ2/RQ3)
 
-| Paper artifact                         | Command(s)                                                                                       |
-|----------------------------------------|--------------------------------------------------------------------------------------------------|
-| **Top-1 decoding** (floor)             | `python scripts/tts/run_top1.py`  *(edit the `data/…` path inside to switch benchmark)*          |
-| **Best-of-M** (exhaustive upper bound) | `python scripts/tts/run_best_of_m.py`  *(ThinkPRM-1.5B; edit the `data/…` path + `BATCH_SIZE`)*  |
-| **GICA**, ThinkPRM-1.5B (Table 1)      | `python scripts/tts/run_gica.py`  *(edit the `data/…` path inside to switch benchmark)*          |
-| **Baselines**, ThinkPRM-7B             | `python scripts/tts/run_baselines.py --baseline_name CASE  --file_path data/Deepseek-MathOdyssey-RL-7B.json --dataset_name MathOdyssey --data_limit 400` |
-| **GICA**, ThinkPRM-7B (Table 5/Fig 5)  | `python scripts/tts/run_gica_topm_thinkprm7b.py --file_path data/Deepseek-MathOdyssey-RL-7B.json --dataset_name MathOdyssey` |
-| **ORM** (Table 1)                      | `python scripts/tts/run_orm_rerank_v2.py --file_path data/Deepseek-MathOdyssey-RL-7B.json --dataset_name MathOdyssey` |
-| **ORM-PRM cascade** (Table 1)          | `python scripts/tts/run_orm_prm_cascade.py --file_path data/Deepseek-MathOdyssey-RL-7B.json --dataset_name MathOdyssey --cascade_top_c 20` |
+Common settings (Appendix B.2): shortlist size `K = 5`, `δ = 0.05`, `λ = 1.0`, generators
+`DeepSeekMath-RL-7B` and `InternLM2-Math-Plus-7B`, `M = 100` paths per question, with
+ThinkPRM-1.5B as the verifier.
 
-For the baseline driver, `--baseline_name ∈ {CASE, GIFA, lingape}`. `run_baselines.py` and
-`run_gica_topm_thinkprm7b.py` load `launch/ThinkPRM-7B`; for the ThinkPRM-1.5B numbers in
-Table 1, change the `model_name_or_path` in their `ThinkPRM(...)` constructor.
+| Paper artifact | Command |
+|---|---|
+| **Top-1 decoding** (floor) | `python scripts/tts/run_top1.py` |
+| **Best-of-M** (exhaustive upper bound) | `python scripts/tts/run_best_of_m.py` |
+| **GICA** | `python scripts/tts/run_gica.py` |
+| **Bandit baselines** | `python scripts/tts/run_baselines.py --baseline_name CASE --file_path data/Deepseek-MathOdyssey-RL-7B.json --dataset_name MathOdyssey --data_limit 400` |
+| **ORM** | `python scripts/tts/run_orm_rerank_v2.py --file_path data/Deepseek-MathOdyssey-RL-7B.json --dataset_name MathOdyssey` |
+| **ORM-PRM cascade** | `python scripts/tts/run_orm_prm_cascade.py --file_path data/Deepseek-MathOdyssey-RL-7B.json --dataset_name MathOdyssey --cascade_top_c 20` |
+
+For the baseline driver, `--baseline_name ∈ {CASE, GIFA, lingape}`. Note that
+`run_baselines.py` loads `launch/ThinkPRM-7B`; for the ThinkPRM-1.5B numbers of Table 1,
+change the `model_name_or_path` in its `ThinkPRM(...)` constructor.
 
 **Steps to reproduce a full table row (example: MathOdyssey, DeepSeekMath-RL-7B, ThinkPRM-1.5B):**
 
@@ -649,52 +644,48 @@ Table 1, change the `model_name_or_path` in their `ThinkPRM(...)` constructor.
 python scripts/tts/run_best_of_m.py        # set the data path to Deepseek-MathOdyssey-RL-7B.json
 python scripts/tts/run_top1.py             # set the data path to Deepseek-MathOdyssey-RL-7B.json
 
-# ORM and ORM-PRM cascade baselines.
-# Run the ORM-only baseline first; it caches orm_scores_<dataset_name>.json
+# 2) ORM, then the ORM-PRM cascade reusing the cached ORM scores
 python scripts/tts/run_orm_rerank_v2.py \
     --file_path data/Deepseek-MathOdyssey-RL-7B.json --dataset_name MathOdyssey \
     --orm_backend seqcls --orm_model RLHFlow/Llama3.1-8B-ORM-Deepseek-Data
 
-# Then run the ORM-PRM cascade, reusing those cached scores
 python scripts/tts/run_orm_prm_cascade.py \
     --file_path data/Deepseek-MathOdyssey-RL-7B.json \
     --dataset_name MathOdyssey --orm_scores orm_scores_MathOdyssey.json --cascade_top_c 20
 
-# 2) GICA
+# 3) GICA
 python scripts/tts/run_gica.py             # already points at Deepseek-MathOdyssey-RL-7B.json
 
-# 3) bandit baselines (one run each: CASE, GIFA, lingape)
+# 4) bandit baselines (one run each: CASE, GIFA, lingape)
 python scripts/tts/run_baselines.py --baseline_name CASE \
     --file_path data/Deepseek-MathOdyssey-RL-7B.json \
     --dataset_name MathOdyssey --data_limit 400
-
-# 4) the ThinkPRM-7B variant of GICA (Table 5 / Figure 5)
-python scripts/tts/run_gica_topm_thinkprm7b.py \
-    --file_path data/Deepseek-MathOdyssey-RL-7B.json --dataset_name MathOdyssey
 ```
 
-Each driver prints the running and final **Exact-Match** and the mean/standard-deviation of
-per-query time. The CLI drivers (`run_baselines.py`, `run_gica_topm_thinkprm7b.py`) additionally
-write a per-question CSV with columns `qid, iter, time, EM`, where **`iter` is the verifier-call
-count** (Figures 4–5) and **`time`** is the per-query inference runtime.
+Each driver prints the running and final **Exact-Match** (Table 1) and the mean/standard
+deviation of per-query time. `run_gica.py`, `run_baselines.py` and
+`run_gica_topm_thinkprm7b.py` additionally write a per-question CSV with columns
+`qid, iter, time, EM`, where **`iter`** is the verifier-call count and **`time`** the
+per-query inference runtime — the two quantities plotted in **Figure 4**. Collect them from
+the GICA and baseline runs across MATH-500 / MathOdyssey / AIME and both generators.
 
-- **Figure 4** (ThinkPRM-1.5B): collect the `iter` and `time` columns from the GICA and baseline
-  runs across MATH-500 / MathOdyssey / AIME and both generators.
-- **Table 5 & Figure 5** (ThinkPRM-7B ablation, Appendix C.1): the `run_gica_topm_thinkprm7b.py`
-  and `run_baselines.py` drivers already load `launch/ThinkPRM-7B`; rerun them on each dataset.
+To switch the **benchmark** for the hardcoded-path drivers, edit the single dataset line near
+the top of the file: `DATA_PATH = "data/…json"` in `run_gica.py` (which also names its CSV), or
+the `open("data/…json")` call in `run_best_of_m.py`, `run_top1.py` and `run_majority_vote.py`.
+To switch the **verifier**, edit the `model_name_or_path="launch/ThinkPRM-…"` argument in the
+driver’s `ThinkPRM(...)` constructor.
 
-To switch the **benchmark** for the hardcoded-path drivers (`run_gica.py`, `run_best_of_m.py`,
-`run_top1.py`, `run_majority_vote.py`), edit the single `open("data/…json")` line near the top
-of the file. To switch the **verifier**, edit the `model_name_or_path="launch/ThinkPRM-…"` argument
-in the driver’s `ThinkPRM(...)` constructor.
+### 6.3 Table 2 — sensitivity to the pair–step correlation ρ† (Section 4.5)
 
-### 6.3 Sensitivity to the pair–step correlation ρ†
+A synthetic study. ρ† is an emergent property of the random geometry, so it is **measured**
+rather than set: reseed the geometry in `src/gica/synthetic/environment.py` / `benchmark.py`,
+let the benchmark measure the realized ρ† over the boundary set (`MEASURE_RHO = True`,
+`RHO_PAIRS`, `RHO_EVERY` at the top of `benchmark.py`), and record GICA's verifier calls and
+runtime for each seeding.
 
-This is a synthetic study: reseed the random geometry in
-`src/gica/synthetic/environment.py` / `benchmark.py`, measure the realized ρ† over the boundary
-set, and record GICA’s verifier calls and runtime. Expected trend: cost scales as `O(1/ρ†)`, but the
-empirical effect is far milder than worst case.
-
+The expected trend is a cost scaling of `O(1/ρ†)`, though the empirical effect is far milder
+than the worst case, since ρ† is a uniform infimum set by a few adversarial configurations
+while the boundary pairs that actually bottleneck termination are aligned far more favourably.
 
 ---
 

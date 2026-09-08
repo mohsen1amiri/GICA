@@ -9,23 +9,26 @@ ground-truth answer.
 
 **Download the JSON data from:**
 
-> https://osf.io/v7muk/overview?view_only=aa5acf15fbcd4d0db38d3f53f480dc52
+> https://osf.io/v7muk/
 
-and drop the files into **this `data/` folder** (repository root → `data/`).
+The download is a single `data.zip` containing a `data/` folder. Unzip it at the
+repository root so its contents land in **this `data/` folder**.
 
 
 ## Expected files
 
-The driver scripts reference files named `<Generator>-<Benchmark>-RL-7B.json`, e.g.:
+The archive contains one candidate-path file per (generator, benchmark) pair:
 
 ```
 data/
-├── Deepseek-Math-RL-7B.json          # MATH-500,     generator = DeepSeekMath-RL-7B
-├── Deepseek-MathOdyssey-RL-7B.json   # MathOdyssey,  generator = DeepSeekMath-RL-7B
-├── Deepseek-AIME-RL-7B.json          # AIME,         generator = DeepSeekMath-RL-7B
-├── InternLM2-Math-RL-7B.json         # MATH-500,     generator = InternLM2-Math-Plus-7B
-├── InternLM2-MathOdyssey-RL-7B.json  # MathOdyssey,  generator = InternLM2-Math-Plus-7B
-└── InternLM2-AIME-RL-7B.json         # AIME,         generator = InternLM2-Math-Plus-7B
+├── Deepseek-Math-RL-7B.json               # MATH-500,    generator = DeepSeekMath-RL-7B
+├── Deepseek-MathOdyssey-RL-7B.json        # MathOdyssey, generator = DeepSeekMath-RL-7B
+├── Deepseek-AIME-RL-7B.json               # AIME,        generator = DeepSeekMath-RL-7B
+├── InternLM2-Math-Plus-7B.json            # MATH-500,    generator = InternLM2-Math-Plus-7B
+├── InternLM2-Math-MathOdyssey-Plus-7B.json # MathOdyssey, generator = InternLM2-Math-Plus-7B
+├── InternLM2-AIME-7B.json                 # AIME,        generator = InternLM2-Math-Plus-7B
+└── math-500-idx.json                      # question-index subset ({"ids": [...]}),
+                                           #   for run_orm_rerank_v2.py --index_file
 ```
 
 

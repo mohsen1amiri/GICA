@@ -14,6 +14,10 @@ Unlike the baseline driver, the oracle here scores a *step prefix* and returns T
 ``prefix_score`` (rather than the mean of all step labels), and the winner is simply the
 highest-ranked path (``top_m[0]``).
 
+Per-question verifier-call counts and timings are written to a CSV with columns
+``qid, iter, time, EM`` (``iter`` is the verifier-call count), the same format the
+ThinkPRM-7B driver emits, so Figure 4 can be assembled exactly like Figure 5.
+
 Run from the repository root (the dataset path is hardcoded to MathOdyssey; edit it to
 switch benchmark)::
 
@@ -22,9 +26,11 @@ switch benchmark)::
 
 import numpy as np
 import json
+import os
 from collections import defaultdict
 from gica.tts.answer_extraction import strip_string
 from gica.tts.verifier import ThinkPRM
+import pandas as pd
 from statistics import mean, stdev
 import time
 import numpy as np
@@ -215,7 +221,7 @@ class PRMEnvironment:
 # Experiment Runner
 # ---------------------------
 def run_prm_experiment(question, paths, answers, q_idx):
-    """Run one question end-to-end with GICA; return its Exact-Match.
+    """Run one question end-to-end with GICA; return (EM, num_rounds).
 
     Builds the environment, instantiates GICA with the TTS hyperparameters, runs the top-5
     identification loop against the ThinkPRM oracle until it converges or the shortlist is
@@ -264,7 +270,7 @@ def run_prm_experiment(question, paths, answers, q_idx):
         top_m
     )
 
-    return em
+    return em, t
 
 
 # ---------------------------
@@ -274,15 +280,19 @@ if __name__ == "__main__":
 
     times = []
 
-    with open("data/Deepseek-MathOdyssey-RL-7B.json") as f:
+    # Edit this path to switch benchmark; it also names the output CSV.
+    DATA_PATH = "data/Deepseek-MathOdyssey-RL-7B.json"
+    with open(DATA_PATH) as f:
         data = json.load(f)
+    dataset_tag = os.path.splitext(os.path.basename(DATA_PATH))[0]
     exact_match = 0
     total=0
+    iterations_data = {"qid":[],"iter":[],"time":[],"EM":[]}
     for idx in range(len(data["answer"])):
         start = time.time()
         print("\n============================")
         print(f"QUESTION {idx}")
-        em = run_prm_experiment(
+        em, iterat = run_prm_experiment(
             data["prompt"][idx],
             data["completion"][idx],
             data["answer"],
@@ -290,10 +300,16 @@ if __name__ == "__main__":
         )
 
         exact_match += em
+        iterations_data["qid"].append(idx+1)
+        iterations_data["iter"].append(iterat)
         total += 1
         end = time.time()
         times.append(end-start)
+        iterations_data["time"].append(end-start)
+        iterations_data["EM"].append(em)
 
         print("EM so far:", exact_match / total, mean(times))
+        pd.DataFrame(iterations_data).to_csv(
+            "qid_iterations_GICA_{}_over_top_m.csv".format(dataset_tag), index=False)
 
     print("Final EM:", (exact_match / total), mean(times),stdev(times))

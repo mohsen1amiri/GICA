@@ -55,7 +55,7 @@ def outpath(stem: str, ext: str = ".png") -> str:
 # "path":           baselines operate on PATH arms (each arm = a CoT/path).
 # "step_surrogate": baselines operate on STEP arms (each arm = a step), then we
 #                   rank PATHS using the learned surrogate (theta_hat).
-BASELINE_ARM_MODE = "step_surrogate"  # "path" or "step_surrogate"
+BASELINE_ARM_MODE = "path"  # "path" or "step_surrogate"  (paper: "path")
 
 # In step_surrogate mode:
 # - "baseline":   stop when the baseline stops (often based on step-top-m, not
@@ -72,7 +72,7 @@ STEP_SURROGATE_STOP_RULE = "baseline"  # "baseline" or "path_gamma"
 #                averaged. This yields the true per-call runtime and the correct
 #                1/sqrt(T) noise reduction without any analytical shortcut.
 #                Recommended if you charge oracle_cost = len(path).
-PATH_PULL_MODEL = "single"  # "single" or "avg_steps"
+PATH_PULL_MODEL = "avg_steps"  # "single" or "avg_steps"  (paper: "avg_steps")
 
 
 # ---------------------------------------------------------------------------
@@ -575,7 +575,9 @@ def plot_results(total_comparisons, runtimes, G_traces, lcb_traces, label="GICA"
     fig.tight_layout()
     fig.savefig(save_path, dpi=300, bbox_inches="tight")
     print(f"Saved plot to: {save_path}")
-    plt.show()
+    # close rather than show(): on an interactive backend show() blocks until the
+    # window is dismissed, which stalls the batch run after the first figure.
+    plt.close(fig)
 
 
 def plot_compare(resA, resB, nameA="GICA", nameB="CASE", epsilon=0.05, save_path="compare.png"):
@@ -704,7 +706,9 @@ def plot_compare(resA, resB, nameA="GICA", nameB="CASE", epsilon=0.05, save_path
     fig.tight_layout()
     fig.savefig(save_path, dpi=300, bbox_inches="tight")
     print(f"Saved plot to: {save_path}")
-    plt.show()
+    # close rather than show(): on an interactive backend show() blocks until the
+    # window is dismissed, which stalls the batch run after the first figure.
+    plt.close(fig)
 
 
 def plot_compare_all(res_dict, epsilon=0.05, save_path="compare_all_algorithms.png"):
@@ -819,7 +823,9 @@ def plot_compare_all(res_dict, epsilon=0.05, save_path="compare_all_algorithms.p
     fig.tight_layout()
     fig.savefig(save_path, dpi=300, bbox_inches="tight")
     print(f"Saved plot to: {save_path}")
-    plt.show()
+    # close rather than show(): on an interactive backend show() blocks until the
+    # window is dismissed, which stalls the batch run after the first figure.
+    plt.close(fig)
 
 
 # ---------------------------------------------------------------------------
@@ -833,34 +839,38 @@ if __name__ == "__main__":
     # is CONTROLLED via theta_norm * grid_gap, while ``rho_dagger`` is an
     # emergent property that we MEASURE rather than set. ``top_k`` selects the
     # binding boundary rank (pass the same K/m the algorithms identify).
+    # These values are the paper's Appendix B.1 configuration; re-run with
+    # num_paths = 200, 500, 1000 for the three problem scales of Figure 3.
     ENV_CFG = dict(
-        num_paths=50,
-        dim=8,
-        noise_std=0.1,
-        path_len_min=50,
-        path_len_max=300,
+        num_paths=200,        # paper: M in {200, 500, 1000}
+        dim=8,                # paper: d = 8
+        noise_std=0.1,        # paper: R = 0.1
+        path_len_min=20,      # paper: path lengths uniform in {20,...,80}
+        path_len_max=80,
         theta_norm=1.0,       # ||theta*||; must be <= every algorithm's S_0
-        util_floor=0.30,      # smallest path utility
-        grid_gap=1e-1,        # Delta_C = theta_norm * grid_gap
-        gap_spread=3.0,       # accepted by the env, currently unused
-        feature_norm=8.0,     # feature-norm budget L
+        util_floor=0.01,      # smallest path utility
+        grid_gap=1e-6,        # Delta_C = theta_norm * grid_gap
+        gap_spread=2.0,       # accepted by the env, currently unused
+        feature_norm=2.5,     # paper: feature-norm budget L = 2.5
         b_min=0.05,           # accepted by the env, currently unused
         b_max=0.15,           # accepted by the env, currently unused
-        top_k=10,             # rank of the binding boundary (== m below)
-        step_scale=0.30,      # std of the random step features
+        top_k=10,             # paper: K = 10 (must equal m below)
+        step_scale=0.30,      # paper: per-coordinate std 0.30
         util_range=1.0,       # spread of the random path qualities
     )
 
     # NOTE: we keep R in these dicts, but OVERRIDE it per-trial using
     # sigma_for_oracle(...) so that the confidence widths match the oracle's
     # actual noise.
-    ALG_PGIHA = dict(m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0, step_pool_mode="paths")
-    ALG_CASE = dict(m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0, challenger_size=50, challenger_batch=50, seed=0)
-    ALG_MLINGAPE = dict(m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0, selection_rule="largest_variance")
-    ALG_GIFA = dict(m=10, lambda_reg=1.0, epsilon=0.1, delta=0.05, R=0.1, S_0=2.0, selection_rule="largest_variance")
+    # Appendix B.1: all methods share (lambda, delta, epsilon, R, S_0, K) so any
+    # difference reflects the sampling rule rather than the stopping configuration.
+    ALG_PGIHA = dict(m=10, lambda_reg=1.0, epsilon=0.02, delta=0.01, R=0.1, S_0=2.0, step_pool_mode="paths")
+    ALG_CASE = dict(m=10, lambda_reg=1.0, epsilon=0.02, delta=0.01, R=0.1, S_0=2.0, challenger_size=10, challenger_batch=10, seed=0)
+    ALG_MLINGAPE = dict(m=10, lambda_reg=1.0, epsilon=0.02, delta=0.01, R=0.1, S_0=2.0, selection_rule="largest_variance")
+    ALG_GIFA = dict(m=10, lambda_reg=1.0, epsilon=0.02, delta=0.01, R=0.1, S_0=2.0, selection_rule="largest_variance")
 
-    N_TRIALS = 10
-    MAX_ROUNDS = 10_000
+    N_TRIALS = 10          # paper: seeds {0,...,9}
+    MAX_ROUNDS = 100_000   # paper: runs are capped at 100,000 iterations
 
     # Bundle the rho-measurement knobs once so every run_trials call is consistent.
     RHO_KW = dict(
@@ -1171,3 +1181,30 @@ if __name__ == "__main__":
 
     plot_compare_all(all_results, epsilon=ALG_PGIHA["epsilon"],
                      save_path=outpath("compare_all_algorithms"))
+
+    # ---------------------------------------------------------------
+    # Appendix C.3 (Figure 7): per-round top-K identification error of
+    # GICA's certified shortlist. res[5] holds, per trial, the per-round
+    # accuracy |certified top-K intersect true top-K| / K, so the error
+    # plotted in the paper is 100 * (1 - accuracy). Trials that stop early
+    # are forward-filled with their final value so the mean and standard
+    # deviation are taken over all N_TRIALS seeds at every round.
+    # Written as a plain "round mean std" table for direct plotting.
+    # ---------------------------------------------------------------
+    _acc = [np.asarray(a, dtype=float) for a in all_results["GICA"][5] if len(a) > 0]
+    if _acc:
+        _K = ALG_PGIHA["m"]
+        _L = max(len(a) for a in _acc)
+        _err = np.empty((len(_acc), _L))
+        for _i, _a in enumerate(_acc):
+            _e = 100.0 * (1.0 - _a)
+            _err[_i, :len(_e)] = _e
+            _err[_i, len(_e):] = _e[-1]          # forward-fill after a trial stops
+        _mean = _err.mean(axis=0)
+        _std = _err.std(axis=0, ddof=1) if _err.shape[0] > 1 else np.zeros(_L)
+        _dat = outpath(f"topk_error_K{_K}", ext=".dat")
+        with open(_dat, "w", encoding="utf-8") as _f:
+            _f.write("round mean std\n")
+            for _t in range(_L):
+                _f.write(f"{_t} {_mean[_t]:.6f} {_std[_t]:.6f}\n")
+        print(f"[Figure 7] GICA top-{_K} identification error (%) -> {_dat}")
