@@ -1,8 +1,8 @@
 # Appendix Experiments
 
 Companion to [`README.md`](README.md). The README covers the paper's main results — Figure 3,
-Table 1 and Figure 4. This file covers everything else: the full synthetic protocol of
-Appendix B.1, and the additional figures and tables of Section 4.5 and Appendix C.
+Table 1, Figure 4 and the ρ† sensitivity study. This file covers the rest: the full synthetic
+protocol of Appendix B.1, and the additional figures and tables of Appendix C.
 
 All commands run from the repository root with the `gica` environment active and, for the
 test-time-scaling experiments, the datasets present in `data/`.
@@ -61,21 +61,7 @@ the three `.dat` files together.
 
 ---
 
-## 3. Table 2 — sensitivity to the pair–step correlation ρ† (Section 4.5)
-
-A synthetic study. ρ† is an emergent property of the random geometry, so it is **measured**
-rather than set: reseed the geometry in `src/gica/synthetic/environment.py` / `benchmark.py`,
-let the benchmark measure the realized ρ† over the boundary set (`MEASURE_RHO = True`,
-`RHO_PAIRS`, `RHO_EVERY` at the top of `benchmark.py`), and record GICA's verifier calls and
-runtime for each seeding.
-
-The expected trend is a cost scaling of `O(1/ρ†)`, though the empirical effect is far milder
-than the worst case, since ρ† is a uniform infimum set by a few adversarial configurations
-while the boundary pairs that actually bottleneck termination are aligned far more favourably.
-
----
-
-## 4. Table 5 and Figure 5 — verifier scale, ThinkPRM-7B (Appendix C.1)
+## 3. Table 5 and Figure 5 — verifier scale, ThinkPRM-7B (Appendix C.1)
 
 The verifier-scale ablation repeats the full TTS pipeline with ThinkPRM-7B in place of
 ThinkPRM-1.5B, holding the generators, `M = 100`, `K = 5`, the step-segmentation rule, the
@@ -100,7 +86,7 @@ columns of the per-question CSV they write, exactly as Figure 4 is built from th
 
 ---
 
-## 5. Figure 6 — generation vs verification runtime (Appendix C.2)
+## 4. Figure 6 — generation vs verification runtime (Appendix C.2)
 
 Figure 6 splits end-to-end latency into its two halves for `M = 100` paths per query, with
 DeepSeekMath-RL-7B as generator and ThinkPRM-7B as verifier. The percentages in the figure are
@@ -124,7 +110,7 @@ repository.
 
 ---
 
-## 6. Table 6 — sensitivity to K (Appendix C.4)
+## 5. Table 6 — sensitivity to K (Appendix C.4)
 
 Task performance as the shortlist size varies over `K ∈ {1, 3, 5, 10}`, with
 DeepSeekMath-RL-7B as generator and ThinkPRM-7B as verifier. Run the 7B GICA driver once per
@@ -141,7 +127,7 @@ two tables come from the same configuration.
 
 ---
 
-## 7. Figure 8 — accuracy–verification-cost Pareto (Appendix C.5)
+## 6. Figure 8 — accuracy–verification-cost Pareto (Appendix C.5)
 
 Figure 8 has no driver of its own: it is a scatter of numbers the runs above already produce,
 over all twelve dataset × generator × verifier configurations.

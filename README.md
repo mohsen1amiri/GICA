@@ -599,10 +599,11 @@ When you are finished, leave the environment with `deactivate` (venv) or `conda 
 All commands run from the repository root with the `gica` environment active and, for the
 test-time-scaling experiments, the datasets present in `data/`.
 
-This section covers the paper's **main results**: Figure 3 (synthetic sample efficiency, RQ1)
-and Table 1 with Figure 4 (the TTS pipeline, RQ2/RQ3). The appendix figures and tables — the
-full Appendix B.1 parameter list, Table 5 and Figure 5, Figures 6–8, Table 6, and the ρ†
-sensitivity study — are covered in [`APPENDIX_EXPERIMENTS.md`](APPENDIX_EXPERIMENTS.md).
+This section covers the paper's **main results**: Figure 3 (synthetic sample efficiency, RQ1),
+Table 1 with Figure 4 (the TTS pipeline, RQ2/RQ3), and the ρ† sensitivity study of Section 4.5.
+The appendix figures and tables — the full Appendix B.1 parameter list, Table 5 and Figure 5,
+Figures 6–8 and Table 6 — are covered in
+[`APPENDIX_EXPERIMENTS.md`](APPENDIX_EXPERIMENTS.md).
 
 ### 6.1 Figure 3 — synthetic sample efficiency (RQ1)
 
@@ -673,6 +674,18 @@ the top of the file: `DATA_PATH = "data/…json"` in `run_gica.py` (which also n
 the `open("data/…json")` call in `run_best_of_m.py`, `run_top1.py` and `run_majority_vote.py`.
 To switch the **verifier**, edit the `model_name_or_path="launch/ThinkPRM-…"` argument in the
 driver’s `ThinkPRM(...)` constructor.
+
+### 6.3 Table 2 — sensitivity to the pair–step correlation ρ† (Section 4.5)
+
+A synthetic study. ρ† is an emergent property of the random geometry, so it is **measured**
+rather than set: reseed the geometry in `src/gica/synthetic/environment.py` / `benchmark.py`,
+let the benchmark measure the realized ρ† over the boundary set (`MEASURE_RHO = True`,
+`RHO_PAIRS`, `RHO_EVERY` at the top of `benchmark.py`), and record GICA's verifier calls and
+runtime for each seeding.
+
+The expected trend is a cost scaling of `O(1/ρ†)`, though the empirical effect is far milder
+than the worst case, since ρ† is a uniform infimum set by a few adversarial configurations
+while the boundary pairs that actually bottleneck termination are aligned far more favourably.
 
 ---
 
