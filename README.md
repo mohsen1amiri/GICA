@@ -1,6 +1,6 @@
 
 <p align="center">
-  <img src="gica_logo_light.png" width="480" alt="ReformIR logo">
+  <img src="gica_logo_v2.png" width="480" alt="ReformIR logo">
 </p>
 
 <h1 align="center">GICA</h1>
