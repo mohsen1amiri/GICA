@@ -445,7 +445,9 @@ Every bandit driver embeds a small `PRMEnvironment` class that turns one questio
 
 In the GICA drivers the environment's `oracle_callback(step)` reconstructs the within-path prefix and calls the verifier, and this call is what counts as a **verifier call**. `run_baselines.py` is the path-arm adaptation, so its `oracle_callback(path)` instead scores a whole path and returns the mean of its step labels. Each driver also defines `compute_em_from_top_m`, which picks a winning path from the returned top-K, extracts and normalizes its answer, and computes Exact Match.
 
-**`run_gica.py`** is the main GICA driver. It instantiates `selection.gica.GICA` with ThinkPRM-1.5B as the verifier, loops over a benchmark file, runs the selection rule per question, and grades the output. Its winner rule takes the first path in the GICA shortlist directly. Like the CLI drivers it writes a per-question `qid, iter, time, EM` CSV, so Figure 4 is assembled exactly like Figure 5.
+**`run_gica.py`** is the main GICA driver. It instantiates `selection.gica.GICA` with ThinkPRM-1.5B as the verifier, loops over a benchmark file, runs the selection rule per question, and grades the output. Its winner rule takes the first path in the GICA shortlist directly. Like the CLI drivers it writes a per-question `qid, iter, time, EM` CSV.
+
+**`run_gica_topm_steplabels.py`** is a GICA variant whose final-winner rule re-ranks the shortlist by the verifier `prefix_score` rather than taking the first path and is used to produce the main results in Table 1, isolating the effect of the winner-selection rule from the selection mechanism itself.
 
 **`run_baselines.py`** runs the three bandit baselines through a shared harness. A `--baseline_name` argument selects CASE, GIFA (LinGIFA), or m-LinGapE, and a `--file_path` argument selects the dataset. Its winner rule re-scores each shortlisted path with the verifier and keeps the highest-scoring one. This driver is configured with ThinkPRM-7B in the repository.
 
@@ -455,11 +457,9 @@ In the GICA drivers the environment's `oracle_callback(step)` reconstructs the w
 
 **`run_majority_vote.py`** is the self-consistency reference. Its `self_con` routine extracts the final answer from every candidate path and returns the most frequent one, with no PRM involvement.
 
-**`run_gica_topm_steplabels.py`** is a GICA variant whose final-winner rule re-ranks the shortlist by the verifier `prefix_score` rather than taking the first path, isolating the effect of the winner-selection rule from the selection mechanism itself.
-
 **`run_gica_topm_thinkprm7b.py`** repeats the GICA pipeline with the larger ThinkPRM-7B verifier and exposes `--file_path` and `--dataset_name` arguments. It produces the verifier-scale ablation reported in Appendix C.1 (Table 5 and Figure 5).
 
-The last two drivers are the outcome-level comparisons of Table 1. Neither is a bandit, so neither builds a `PRMEnvironment`, and both grade with the helpers in `baseline_common.py` so their Exact Match is computed by exactly the rules the other drivers use.
+The below setups are the outcome-level comparisons of Table 1. Neither is a bandit, so neither builds a `PRMEnvironment`, and both grade with the helpers in `baseline_common.py` so their Exact Match is computed by exactly the rules the other drivers use.
 
 **`run_orm_rerank_v2.py`** is the **ORM** row. It scores every complete candidate path once with an outcome-level verifier, with no step-level verification at all, and reports two winner rules, i.e., the argmax of the ORM score and an ORM-score-weighted vote over the normalized answers. `--orm_backend` picks the scorer: `thinkprm` reuses `--prm_model` in outcome mode (the whole path is passed as a single step, so no extra weights are loaded), while `seqcls` and `rlhflow` load a separate Hugging Face reward model named by `--orm_model`. Its cost is M outcome-level calls per question against M step-level calls for Best-of-M. It writes `orm_rerank_<backend>_<dataset>.csv` and caches its scores to `orm_scores_<dataset>.json`. By default it runs every question in `--file_path`; `--index_file` restricts the run to a saved list of question indices.
 
