@@ -202,7 +202,7 @@ download automatically on first use via Hugging Face):
 
 ### 3.3 Download the datasets (Track 2 only)
 
-The TTS experiments consume **pre-generated candidate reasoning paths** (not raw benchmarks).
+The TTS experiments consume **pre-generated candidate reasoning paths**.
 
 > **Please download the JSON data from** **https://osf.io/v7muk/**
 > **and unzip `data.zip` at the repository root so its contents land in `data/`.**
@@ -467,7 +467,7 @@ The below setups are the outcome-level comparisons of Table 1. Neither is a band
 
 **`baseline_common.py`** holds the loading, grading, and output helpers shared by the two ORM drivers. `load_dataset` reads the `data/` JSON schema and applies `--data_limit`; `grade_path_best_of_m` is the winning-path Exact-Match rule of `run_best_of_m.py`; `self_con` and `self_con_answer` are the normalization and tally of `run_majority_vote.py`, kept verbatim so the numbers stay comparable, and `weighted_self_con` is their score-weighted variant. It is imported by path rather than through the `gica` package.
 
-**`orm.py`** is a stand-alone copy of the outcome-level scorers (`ThinkPRMOutcomeORM`, `SeqClsORM`, `RLHFlowORM`, and the `build_orm` factory). The drivers import the packaged `gica.tts.verifier.orm` instead, so this copy is not used at runtime.
+**`orm.py`** is a stand-alone copy of the outcome-level scorers (`ThinkPRMOutcomeORM`, `SeqClsORM`, `RLHFlowORM`, and the `build_orm` factory). The drivers import the packaged `gica.tts.verifier.orm`.
 
 ---
 
