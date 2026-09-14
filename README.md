@@ -12,6 +12,8 @@
 
 ---
 
+https://youtu.be/wp3LS2jy84Y
+
 ## 1. Project Title & Abstract
 
 **Test-time scaling (TTS)** improves the reasoning of large language models (LLMs) by sampling
