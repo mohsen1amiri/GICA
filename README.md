@@ -17,7 +17,7 @@
     <img src="https://img.youtube.com/vi/wp3LS2jy84Y/maxresdefault.jpg" width="480" alt="GICA walkthrough video">
   </a>
 </p>
-<p align="center"><b>▶ Watch the walkthrough</b></p>
+<p align="center"><b>▶ Watch the presentation of the paper</b></p>
 
 ## 1. Project Title & Abstract
 
