@@ -12,14 +12,35 @@
 
 ---
 
-## Paper Presentation
+<!-- ══════════════════════════  PAPER PRESENTATION  ══════════════════════════ -->
+
+<h2 align="center">Paper Presentation</h2>
 
 <p align="center">
-  <a href="https://youtu.be/wp3LS2jy84Y">
-    <img src="https://img.youtube.com/vi/wp3LS2jy84Y/maxresdefault.jpg" width="480" alt="GICA paper presentation">
+  <a href="https://youtu.be/qeeVY6tIpHw">
+    <img src="https://img.youtube.com/vi/qeeVY6tIpHw/maxresdefault.jpg"
+         width="720"
+         alt="GICA — Gap-Index Compositional Arm Framework — paper presentation">
   </a>
 </p>
-<p align="center"><i>A walkthrough of the GICA paper — click to watch on YouTube.</i></p>
+
+<p align="center">
+  <a href="https://youtu.be/qeeVY6tIpHw">
+    <img src="https://img.shields.io/badge/Watch%20the%20talk-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch on YouTube">
+  </a>
+  <a href="https://openreview.net/forum?id=zlyn0moogg">
+    <img src="https://img.shields.io/badge/Paper-TMLR-8C1515?style=for-the-badge&logo=openreview&logoColor=white" alt="Paper on OpenReview">
+  </a>
+  <a href="https://osf.io/v7muk/">
+    <img src="https://img.shields.io/badge/Data-OSF-1284C5?style=for-the-badge&logo=osf&logoColor=white" alt="Data on OSF">
+  </a>
+</p>
+
+<p align="center">
+  <sub><i>A walkthrough of the method, the theory, and the empirical results.</i></sub>
+</p>
+
+<!-- ═════════════════════════════════════════════════════════════════════════ -->
 
 ## 1. Project Title & Abstract
 
