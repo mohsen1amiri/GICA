@@ -12,13 +12,14 @@
 
 ---
 
-## Demo
+## Paper Presentation
 
 <p align="center">
   <a href="https://youtu.be/wp3LS2jy84Y">
-    <img src="https://img.youtube.com/vi/wp3LS2jy84Y/maxresdefault.jpg" width="480" alt="GICA walkthrough video">
+    <img src="https://img.youtube.com/vi/wp3LS2jy84Y/maxresdefault.jpg" width="480" alt="GICA paper presentation">
   </a>
 </p>
+<p align="center"><i>A walkthrough of the GICA paper — click to watch on YouTube.</i></p>
 
 ## 1. Project Title & Abstract
 
