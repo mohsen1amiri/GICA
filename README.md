@@ -728,7 +728,6 @@ If you use this code, please cite the paper:
   title   = {{GICA}: The Gap-Index Compositional Arm Framework for Sample-Efficient Test-Time Scaling},
   author  = {Amiri, Mohsen and V, Venktesh and Beikmohammadi, Ali and Magn{\'u}sson, Sindri},
   journal = {Transactions on Machine Learning Research},
-  issn    = {2835-8856},
   year    = {2026},
   url     = {https://openreview.net/forum?id=zlyn0moogg}
 }
