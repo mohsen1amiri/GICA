@@ -57,7 +57,7 @@ informative steps along the most ambiguous top-vs-challenger boundary, and stops
 top-K shortlist is statistically certified.
 
 Empirically, GICA **matches the accuracy of exhaustive Best-of-M process verification** while
-reducing verifier calls by up to **4.6×** and inference runtime by up to **4.3×** relative to the
+reducing verifier calls by up to **4.6×** and inference runtime by up to **4.5×** relative to the
 strongest bandit baseline, across three math-reasoning benchmarks (MATH-500, MathOdyssey, AIME),
 two open-weight generators (DeepSeekMath-RL-7B, InternLM2-Math-Plus-7B), and two reasoning-based
 verifiers (ThinkPRM-1.5B, ThinkPRM-7B).
