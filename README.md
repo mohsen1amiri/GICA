@@ -725,11 +725,13 @@ If you use this code, please cite the paper:
 
 ```bibtex
 @article{amiri2026gica,
-  title   = {{GICA}: The Gap-Index Compositional Arm Framework for Sample-Efficient Test-Time Scaling},
-  author  = {Amiri, Mohsen and V, Venktesh and Beikmohammadi, Ali and Magn{\'u}sson, Sindri},
-  journal = {Transactions on Machine Learning Research},
-  year    = {2026},
-  url     = {https://openreview.net/forum?id=zlyn0moogg}
+title={{GICA}: The Gap-Index Compositional Arm Framework for Sample-Efficient Test-Time Scaling},
+author={Mohsen Amiri and Venktesh V and Ali Beikmohammadi and Sindri Magn{\'u}sson},
+journal={Transactions on Machine Learning Research},
+issn={2835-8856},
+year={2026},
+url={https://openreview.net/forum?id=zlyn0moogg},
+note={}
 }
 ```
 
